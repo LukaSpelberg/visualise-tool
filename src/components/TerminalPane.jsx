@@ -10,7 +10,7 @@ const terminalTheme = {
   selectionBackground: '#264f78'
 };
 
-const TerminalPane = ({ isOpen, bridge, cwd, onClose }) => {
+export default function TerminalPane({ isOpen, bridge, cwd, onClose }) {
   const containerRef = useRef(null);
   const terminalRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -168,6 +168,4 @@ const TerminalPane = ({ isOpen, bridge, cwd, onClose }) => {
       <div className="terminal-body" ref={containerRef} tabIndex={-1} />
     </section>
   );
-};
-
-export default TerminalPane;
+}

@@ -3,6 +3,7 @@ import EditorPane from './components/EditorPane.jsx';
 import ProjectTree from './components/ProjectTree.jsx';
 import AIChatPlaceholder from './components/AIChatPlaceholder.jsx';
 import TerminalPane from './components/TerminalPane.jsx';
+import VisualPreview from './components/VisualPreview.jsx';
 import TopNav from './components/TopNav.jsx';
 // inline create handled inside ProjectTree
 
@@ -306,30 +307,7 @@ const App = () => {
             />
           </>
         ) : (
-          <div className="visual-preview-container">
-            <div className="visual-preview-bar">
-              <span className="preview-url">{previewUrl}</span>
-              <button 
-                className="toggle-button" 
-                type="button" 
-                onClick={toggleViewMode}
-                title="Back to code view"
-              >
-                Code view
-              </button>
-            </div>
-            {previewUrl && (
-              <webview
-                src={previewUrl}
-                className="preview-webview"
-                // Note: these are lowercase for webview tag
-                nodeintegration="false"
-                contextIsolation="true"
-                webpreferences="contextIsolation=true"
-                style={{ display: 'flex', flex: 1, width: '100%', height: '100%' }}
-              />
-            )}
-          </div>
+          <VisualPreview url={previewUrl} onBack={toggleViewMode} />
         )}
       </div>
       {/* Inline creation handled inside ProjectTree; modal removed */}
