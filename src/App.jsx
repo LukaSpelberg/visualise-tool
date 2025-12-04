@@ -38,6 +38,8 @@ const App = () => {
   const [fsError, setFsError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('code'); // 'code' | 'visual'
+  const [previewUrl, setPreviewUrl] = useState('');
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -97,6 +99,41 @@ const App = () => {
     }
     setTerminalOpen(prev => !prev);
   }, [hasTerminalAccess]);
+
+  const toggleViewMode = useCallback(async () => {
+    if (viewMode === 'code') {
+      // Switch to visual mode - start preview server
+      if (!fileBridge?.startPreviewServer) {
+        window.alert('Preview server is only available in the Electron shell.');
+        return;
+      }
+      if (!folderPath) {
+        window.alert('Please open a folder first.');
+        return;
+      }
+      
+      try {
+        const result = await fileBridge.startPreviewServer({ folderPath });
+        if (result?.success) {
+          setPreviewUrl(result.url);
+          setViewMode('visual');
+        } else {
+          window.alert(`Failed to start preview server: ${result?.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        window.alert(`Error starting preview: ${error.message}`);
+      }
+    } else {
+      // Switch back to code mode
+      setViewMode('code');
+      if (fileBridge?.stopPreviewServer) {
+        fileBridge.stopPreviewServer().catch(err => {
+          // eslint-disable-next-line no-console
+          console.error('Error stopping preview server:', err);
+        });
+      }
+    }
+  }, [viewMode, fileBridge, folderPath]);
 
   const saveFile = useCallback(async () => {
     if (!fileBridge?.saveFile || !activeFilePath) return;
@@ -231,66 +268,72 @@ const App = () => {
       />
       <div className="workspace">
         <AIChatPlaceholder />
-        <div className={`editor-column ${terminalOpen ? 'has-terminal' : ''}`}>
-          <div className="editor-pane-wrapper">
-            <EditorPane
-              fileName={activeFileName}
-              code={code}
-              onChange={setCode}
-              warnings={0}
-              errors={0}
-              dirty={dirty}
-              onSave={saveFile}
+        {viewMode === 'code' ? (
+          <>
+            <div className={`editor-column ${terminalOpen ? 'has-terminal' : ''}`}>
+              <div className="editor-pane-wrapper">
+                <EditorPane
+                  fileName={activeFileName}
+                  code={code}
+                  onChange={setCode}
+                  warnings={0}
+                  errors={0}
+                  dirty={dirty}
+                  onSave={saveFile}
+                  viewMode={viewMode}
+                  onToggleView={toggleViewMode}
+                />
+              </div>
+              <TerminalPane
+                isOpen={terminalOpen}
+                bridge={fileBridge}
+                cwd={folderPath}
+                onClose={() => setTerminalOpen(false)}
+              />
+            </div>
+            <ProjectTree
+              folderPath={folderPath}
+              tree={tree}
+              activeFilePath={activeFilePath}
+              onSelectFile={handleSelectFile}
+              onChooseFolder={handleChooseFolder}
+              createRequest={createRequest}
+              clearCreateRequest={clearCreateRequest}
+              onRefresh={refreshTree}
+              isLoading={isLoading}
+              fsError={fsError}
+              hasFileSystemAccess={hasFileSystemAccess}
             />
+          </>
+        ) : (
+          <div className="visual-preview-container">
+            <div className="visual-preview-bar">
+              <span className="preview-url">{previewUrl}</span>
+              <button 
+                className="toggle-button" 
+                type="button" 
+                onClick={toggleViewMode}
+                title="Back to code view"
+              >
+                Code view
+              </button>
+            </div>
+            {previewUrl && (
+              <webview
+                src={previewUrl}
+                className="preview-webview"
+                // Note: these are lowercase for webview tag
+                nodeintegration="false"
+                contextIsolation="true"
+                webpreferences="contextIsolation=true"
+                style={{ display: 'flex', flex: 1, width: '100%', height: '100%' }}
+              />
+            )}
           </div>
-          <TerminalPane
-            isOpen={terminalOpen}
-            bridge={fileBridge}
-            cwd={folderPath}
-            onClose={() => setTerminalOpen(false)}
-          />
-        </div>
-        <ProjectTree
-          folderPath={folderPath}
-          tree={tree}
-          activeFilePath={activeFilePath}
-          onSelectFile={handleSelectFile}
-          onChooseFolder={handleChooseFolder}
-          createRequest={createRequest}
-          clearCreateRequest={clearCreateRequest}
-          onRefresh={refreshTree}
-          isLoading={isLoading}
-          fsError={fsError}
-          hasFileSystemAccess={hasFileSystemAccess}
-        />
+        )}
       </div>
       {/* Inline creation handled inside ProjectTree; modal removed */}
-      {import.meta.env.DEV && (
-        <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 60 }}>
-          <button
-            type="button"
-            onClick={async () => {
-              // eslint-disable-next-line no-console
-              console.log('[debug] fileBridge:', fileBridge);
-              if (!fileBridge?.selectFolder) {
-                // eslint-disable-next-line no-console
-                console.warn('[debug] selectFolder not available');
-                return;
-              }
-              try {
-                const res = await fileBridge.selectFolder();
-                // eslint-disable-next-line no-console
-                console.log('[debug] selectFolder result:', res);
-              } catch (err) {
-                // eslint-disable-next-line no-console
-                console.error('[debug] selectFolder error:', err);
-              }
-            }}
-          >
-            Test selectFolder
-          </button>
-        </div>
-      )}
+      {/* Developer debug button removed - left in codebase nothing for end users */}
     </div>
   );
 };

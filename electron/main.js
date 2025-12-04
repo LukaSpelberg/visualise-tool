@@ -2,7 +2,10 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'path';
 import url from 'url';
 import fs from 'fs/promises';
-import { spawn as spawnProcess } from 'child_process';
+import os from 'os';
+import * as pty from 'node-pty';
+import express from 'express';
+import getPort from 'get-port';
 
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication,Autofill');
 
@@ -15,16 +18,20 @@ const IGNORED_DIRECTORIES = new Set(['.git', '.vscode', 'node_modules']);
 const terminals = new Map();
 let nextTerminalId = 1;
 
+// Preview server state
+let previewServer = null;
+let previewPort = null;
+
 const getShellConfig = () => {
   if (process.platform === 'win32') {
     return {
-      command: process.env.COMSPEC || 'powershell.exe',
-      args: ['-NoLogo']
+      shell: 'powershell.exe',
+      args: []
     };
   }
   return {
-    command: process.env.SHELL || '/bin/bash',
-    args: ['-i']
+    shell: process.env.SHELL || '/bin/bash',
+    args: []
   };
 };
 
@@ -75,7 +82,8 @@ const createWindow = () => {
       preload: path.join(process.cwd(), 'electron', 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webviewTag: true // Enable webview tag
     }
   });
 
@@ -202,41 +210,40 @@ const registerIpcHandlers = () => {
     }
   });
 
-  ipcMain.handle('terminal-create', (event, { cwd } = {}) => {
+  ipcMain.handle('terminal-create', (event, { cwd, cols = 80, rows = 24 } = {}) => {
     try {
-      const { command, args } = getShellConfig();
-      const workingDir = cwd || process.cwd();
-      const child = spawnProcess(command, args, {
+      const { shell, args } = getShellConfig();
+      const workingDir = cwd || os.homedir();
+
+      // eslint-disable-next-line no-console
+      console.log(`[terminal-create] Spawning PTY: ${shell} in ${workingDir}`);
+
+      const ptyProcess = pty.spawn(shell, args, {
+        name: 'xterm-256color',
+        cols,
+        rows,
         cwd: workingDir,
-        env: { ...process.env, TERM: 'xterm-256color' },
-        stdio: 'pipe'
+        env: process.env
       });
 
       const id = nextTerminalId++;
-      terminals.set(id, { child, webContents: event.sender });
+      terminals.set(id, { ptyProcess, webContents: event.sender });
 
-      child.stdout?.on('data', data => {
+      // Handle data from PTY
+      ptyProcess.onData(data => {
         try {
-          event.sender.send('terminal-data', { id, data: data.toString() });
+          event.sender.send('terminal-data', { id, data });
         } catch (err) {
           // eslint-disable-next-line no-console
           console.error('[main] terminal-data send error', err);
         }
       });
 
-      child.stderr?.on('data', data => {
-        try {
-          event.sender.send('terminal-data', { id, data: data.toString() });
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error('[main] terminal-stderr send error', err);
-        }
-      });
-
-      child.on('exit', (code, signal) => {
+      // Handle exit
+      ptyProcess.onExit(({ exitCode, signal }) => {
         terminals.delete(id);
         try {
-          event.sender.send('terminal-exit', { id, code, signal });
+          event.sender.send('terminal-exit', { id, code: exitCode, signal });
         } catch (err) {
           // eslint-disable-next-line no-console
           console.error('[main] terminal-exit send error', err);
@@ -253,21 +260,89 @@ const registerIpcHandlers = () => {
 
   ipcMain.on('terminal-write', (_event, { id, data }) => {
     const entry = terminals.get(id);
-    if (entry?.child?.stdin?.writable) {
-      entry.child.stdin.write(data);
+    if (entry?.ptyProcess) {
+      entry.ptyProcess.write(data);
     }
   });
 
-  ipcMain.on('terminal-resize', () => {
-    // no-op: pseudo-terminal resizing is not supported with stdio pipes
+  ipcMain.on('terminal-resize', (_event, { id, cols, rows }) => {
+    const entry = terminals.get(id);
+    if (entry?.ptyProcess) {
+      try {
+        entry.ptyProcess.resize(cols, rows);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[main] terminal-resize error', err);
+      }
+    }
   });
 
   ipcMain.on('terminal-dispose', (_event, { id }) => {
     const entry = terminals.get(id);
-    if (entry?.child) {
-      entry.child.kill();
+    if (entry?.ptyProcess) {
+      entry.ptyProcess.kill();
     }
     terminals.delete(id);
+  });
+
+  // Preview server handlers
+  ipcMain.handle('start-preview-server', async (_event, { folderPath }) => {
+    try {
+      // Stop existing server if running
+      if (previewServer) {
+        await new Promise((resolve) => {
+          previewServer.close(() => resolve());
+        });
+        previewServer = null;
+        previewPort = null;
+      }
+
+      // Find a free port
+      const port = await getPort({ port: [3000, 3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009, 4000, 5000, 8000, 8080, 9000] });
+      
+      // Create express server
+      const app = express();
+      app.use(express.static(folderPath));
+      
+      // Start server
+      await new Promise((resolve, reject) => {
+        const server = app.listen(port, (err) => {
+          if (err) reject(err);
+          else {
+            previewServer = server;
+            previewPort = port;
+            // eslint-disable-next-line no-console
+            console.log(`[preview-server] Started on port ${port}`);
+            resolve();
+          }
+        });
+      });
+
+      return { success: true, url: `http://localhost:${port}` };
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('[preview-server] Error starting server:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('stop-preview-server', async () => {
+    try {
+      if (previewServer) {
+        await new Promise((resolve) => {
+          previewServer.close(() => resolve());
+        });
+        // eslint-disable-next-line no-console
+        console.log('[preview-server] Stopped');
+        previewServer = null;
+        previewPort = null;
+      }
+      return { success: true };
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('[preview-server] Error stopping server:', error);
+      return { success: false, error: error.message };
+    }
   });
 };
 

@@ -19,11 +19,20 @@ const TerminalPane = ({ isOpen, bridge, cwd, onClose }) => {
   const exitUnsubRef = useRef(null);
   const resizeObserverRef = useRef(null);
   const inputDisposableRef = useRef(null);
+  const mouseDownCleanupRef = useRef(null);
+
+  const focusTerminal = useCallback(() => {
+    terminalRef.current?.focus();
+  }, []);
 
   const cleanupTerminal = useCallback(() => {
     if (inputDisposableRef.current) {
       inputDisposableRef.current.dispose();
       inputDisposableRef.current = null;
+    }
+    if (mouseDownCleanupRef.current) {
+      mouseDownCleanupRef.current();
+      mouseDownCleanupRef.current = null;
     }
     dataUnsubRef.current?.();
     exitUnsubRef.current?.();
@@ -67,6 +76,18 @@ const TerminalPane = ({ isOpen, bridge, cwd, onClose }) => {
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
     fitAddon.fit();
+    // Ensure the xterm instance receives keyboard focus immediately
+    setTimeout(() => {
+      focusTerminal();
+    }, 0);
+
+    if (containerRef.current) {
+      const handler = () => focusTerminal();
+      containerRef.current.addEventListener('mousedown', handler, { capture: true });
+      mouseDownCleanupRef.current = () => {
+        containerRef.current?.removeEventListener('mousedown', handler, { capture: true });
+      };
+    }
 
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -106,6 +127,7 @@ const TerminalPane = ({ isOpen, bridge, cwd, onClose }) => {
         return;
       }
       terminalIdRef.current = response.id;
+      focusTerminal();
     };
 
     startTerminal();
@@ -143,7 +165,7 @@ const TerminalPane = ({ isOpen, bridge, cwd, onClose }) => {
           Hide
         </button>
       </div>
-      <div className="terminal-body" ref={containerRef} />
+      <div className="terminal-body" ref={containerRef} tabIndex={-1} />
     </section>
   );
 };

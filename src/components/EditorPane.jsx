@@ -25,7 +25,7 @@ const guessLanguage = fileName => {
   }
 };
 
-const EditorPane = ({ fileName, warnings, errors, code, onChange, dirty, onSave }) => {
+const EditorPane = ({ fileName, warnings, errors, code, onChange, dirty, onSave, viewMode, onToggleView }) => {
   const language = useMemo(() => guessLanguage(fileName), [fileName]);
   const isEmpty = code === null;
 
@@ -44,8 +44,13 @@ const EditorPane = ({ fileName, warnings, errors, code, onChange, dirty, onSave 
               Save
             </button>
           )}
-          <button className="toggle-button" type="button">
-            Code view
+          <button 
+            className={`toggle-button ${viewMode === 'visual' ? 'active' : ''}`}
+            type="button" 
+            onClick={onToggleView}
+            title={viewMode === 'visual' ? 'Switch to code view' : 'Switch to visual preview'}
+          >
+            {viewMode === 'visual' ? 'Code view' : 'Visual preview'}
           </button>
         </div>
       </div>
