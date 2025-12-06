@@ -118,6 +118,10 @@ const App = () => {
         if (result?.success) {
           setPreviewUrl(result.url);
           setViewMode('visual');
+        } else if (result?.needsRuntime) {
+          const suggested = result.suggestedCommand ? `\nTry: ${result.suggestedCommand}` : '';
+          // Non-blocking notification to avoid interfering with terminal input focus
+          console.warn(result.error || 'This project needs a dev server running.', suggested);
         } else {
           window.alert(`Failed to start preview server: ${result?.error || 'Unknown error'}`);
         }

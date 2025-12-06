@@ -6,6 +6,9 @@ import os from 'os';
 import * as pty from 'node-pty';
 import express from 'express';
 import getPort from 'get-port';
+import http from 'http';
+import https from 'https';
+import { spawn } from 'child_process';
 
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication,Autofill');
 
@@ -21,6 +24,153 @@ let nextTerminalId = 1;
 // Preview server state
 let previewServer = null;
 let previewPort = null;
+const BUILD_DIR_CANDIDATES = ['dist', 'build', 'public'];
+const COMMON_DEV_PORTS = [3000, 5173, 4173, 8080, 8000, 4200];
+let devProcess = null;
+let devProcessInfo = null; // { cwd, script }
+
+const pathExists = async target => {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const resolveStaticTarget = async basePath => {
+  for (const dirName of BUILD_DIR_CANDIDATES) {
+    const candidateRoot = path.join(basePath, dirName);
+    const candidateIndex = path.join(candidateRoot, 'index.html');
+    if (await pathExists(candidateIndex)) {
+      return { root: candidateRoot, indexPath: candidateIndex, source: dirName };
+    }
+  }
+
+  const rootIndex = path.join(basePath, 'index.html');
+  if (await pathExists(rootIndex)) {
+    return { root: basePath, indexPath: rootIndex, source: 'root-index' };
+  }
+
+  return null;
+};
+
+const readPackageJson = async basePath => {
+  const pkgPath = path.join(basePath, 'package.json');
+  if (!(await pathExists(pkgPath))) {
+    return null;
+  }
+
+  try {
+    const raw = await fs.readFile(pkgPath, 'utf-8');
+    return { pkg: JSON.parse(raw), pkgPath };
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn(`[preview-server] Failed to parse package.json at ${pkgPath}:`, error);
+    return null;
+  }
+};
+
+const stopExistingPreviewServer = async () => {
+  if (previewServer) {
+    await new Promise(resolve => {
+      previewServer.close(() => resolve());
+    });
+    // eslint-disable-next-line no-console
+    console.log('[preview-server] Stopped');
+    previewServer = null;
+    previewPort = null;
+  }
+};
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const checkPortAvailableUrl = port => `http://localhost:${port}`;
+
+const pingPort = port =>
+  new Promise(resolve => {
+    const urlToTry = checkPortAvailableUrl(port);
+    const client = urlToTry.startsWith('https') ? https : http;
+    const req = client
+      .get(urlToTry, res => {
+        res.resume();
+        resolve({ ok: res.statusCode >= 200 && res.statusCode < 400, url: urlToTry, status: res.statusCode });
+      })
+      .on('error', () => resolve({ ok: false, url: urlToTry }));
+
+    req.setTimeout(800, () => {
+      req.destroy();
+      resolve({ ok: false, url: urlToTry });
+    });
+  });
+
+const findRunningDevServer = async (skipPorts = []) => {
+  for (const port of COMMON_DEV_PORTS) {
+    if (skipPorts.includes(port)) continue;
+    if (isDev && port === 5173) continue; // avoid picking the editor's own dev server
+    const result = await pingPort(port);
+    if (result.ok) {
+      // eslint-disable-next-line no-console
+      console.log(`[preview-server] Found running dev server at ${result.url} (status ${result.status || 'unknown'})`);
+      return result.url;
+    }
+  }
+  return null;
+};
+
+const waitForDevServer = async (timeoutMs = 20000, intervalMs = 1000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const urlFound = await findRunningDevServer();
+    if (urlFound) return urlFound;
+    await delay(intervalMs);
+  }
+  return null;
+};
+
+const stopDevProcess = async () => {
+  if (devProcess && devProcessInfo?.startedByApp) {
+    try {
+      devProcess.kill();
+    } catch (e) {
+      // ignore
+    }
+  }
+  devProcess = null;
+  devProcessInfo = null;
+};
+
+const spawnDevProcess = (cwd, script) => {
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const child = spawn(npmCmd, ['run', script], {
+    cwd,
+    shell: true,
+    env: {
+      ...process.env,
+      BROWSER: 'none'
+    }
+  });
+
+  devProcess = child;
+  devProcessInfo = { cwd, script, startedByApp: true };
+
+  child.stdout?.on('data', data => {
+    // eslint-disable-next-line no-console
+    console.log(`[preview-dev] ${data.toString().trimEnd()}`);
+  });
+  child.stderr?.on('data', data => {
+    // eslint-disable-next-line no-console
+    console.error(`[preview-dev-err] ${data.toString().trimEnd()}`);
+  });
+  child.on('exit', (code, signal) => {
+    // eslint-disable-next-line no-console
+    console.log(`[preview-dev] exited code=${code} signal=${signal}`);
+    devProcess = null;
+    devProcessInfo = null;
+  });
+
+  return child;
+};
 
 const getShellConfig = () => {
   if (process.platform === 'win32') {
@@ -288,22 +438,70 @@ const registerIpcHandlers = () => {
   // Preview server handlers
   ipcMain.handle('start-preview-server', async (_event, { folderPath }) => {
     try {
-      // Stop existing server if running
-      if (previewServer) {
-        await new Promise((resolve) => {
-          previewServer.close(() => resolve());
-        });
-        previewServer = null;
-        previewPort = null;
+      await stopExistingPreviewServer();
+
+      const pkgInfo = await readPackageJson(folderPath);
+      let target = await resolveStaticTarget(folderPath);
+
+      if (!target && pkgInfo?.pkg) {
+        const scripts = pkgInfo.pkg.scripts || {};
+        const preferredScript = scripts.dev ? 'dev' : scripts.start ? 'start' : null;
+
+        if (preferredScript) {
+          // If we already started a dev process for this folder, reuse it.
+          if (devProcess && devProcessInfo?.cwd === folderPath) {
+            const reused = await waitForDevServer(5000, 500);
+            if (reused) {
+              return { success: true, url: reused, servedFrom: reused, spaFallback: false, externalDevServer: false, reusedDevProcess: true };
+            }
+          }
+
+          // Try to detect an already-running dev server (maybe user started it manually)
+          const runningUrl = await findRunningDevServer();
+          if (runningUrl) {
+            return { success: true, url: runningUrl, servedFrom: runningUrl, spaFallback: false, externalDevServer: true };
+          }
+
+          // Start the dev script ourselves
+          spawnDevProcess(folderPath, preferredScript);
+          const awaited = await waitForDevServer();
+          if (awaited) {
+            return { success: true, url: awaited, servedFrom: awaited, spaFallback: false, externalDevServer: false, startedScript: preferredScript };
+          }
+
+          await stopDevProcess();
+          return {
+            success: false,
+            needsRuntime: true,
+            error: `Started 'npm run ${preferredScript}' but no dev server responded on common ports. Please check the script output in your project.`
+          };
+        }
+      }
+
+      if (!target) {
+        // Fall back to serving the folder directly (best effort for static sites)
+        target = { root: folderPath, indexPath: null, source: 'raw-root' };
       }
 
       // Find a free port
       const port = await getPort({ port: [3000, 3001, 3002, 3003, 3004, 3005, 3006, 3007, 3008, 3009, 4000, 5000, 8000, 8080, 9000] });
-      
+
       // Create express server
       const app = express();
-      app.use(express.static(folderPath));
-      
+
+      // Serve the resolved static root
+      app.use(express.static(target.root));
+
+      // SPA fallback: on any GET that accepts HTML and was not found, return index.html
+      if (target.indexPath) {
+        app.use((req, res, next) => {
+          if (req.method !== 'GET') return next();
+          const accept = req.headers.accept || '';
+          if (accept && !accept.includes('text/html')) return next();
+          return res.sendFile(target.indexPath);
+        });
+      }
+
       // Start server
       await new Promise((resolve, reject) => {
         const server = app.listen(port, (err) => {
@@ -312,13 +510,13 @@ const registerIpcHandlers = () => {
             previewServer = server;
             previewPort = port;
             // eslint-disable-next-line no-console
-            console.log(`[preview-server] Started on port ${port}`);
+            console.log(`[preview-server] Started on port ${port} serving ${target.root} (${target.source})`);
             resolve();
           }
         });
       });
 
-      return { success: true, url: `http://localhost:${port}` };
+      return { success: true, url: `http://localhost:${port}`, servedFrom: target.root, spaFallback: Boolean(target.indexPath) };
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('[preview-server] Error starting server:', error);
@@ -328,15 +526,8 @@ const registerIpcHandlers = () => {
 
   ipcMain.handle('stop-preview-server', async () => {
     try {
-      if (previewServer) {
-        await new Promise((resolve) => {
-          previewServer.close(() => resolve());
-        });
-        // eslint-disable-next-line no-console
-        console.log('[preview-server] Stopped');
-        previewServer = null;
-        previewPort = null;
-      }
+      await stopExistingPreviewServer();
+      await stopDevProcess();
       return { success: true };
     } catch (error) {
       // eslint-disable-next-line no-console

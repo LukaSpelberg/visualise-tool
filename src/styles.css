@@ -606,6 +606,8 @@ body {
   flex-direction: column;
   min-height: 0;
   background: var(--panel);
+  /* Stretch across code + tree columns when in visual mode */
+  grid-column: 2 / -1;
 }
 
 .visual-preview-bar {
