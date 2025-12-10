@@ -4,11 +4,16 @@ import animateIcon from '../assets/icons/animate.svg';
 import componentsIcon from '../assets/icons/components.svg';
 import settingsIcon from '../assets/icons/settings.svg';
 
-const AIChatPlaceholder = () => {
+const AIChatPlaceholder = ({ activeTab: controlledActiveTab, onActiveTabChange, isCreatingComponent }) => {
   const textareaRef = useRef(null);
   const [value, setValue] = useState('');
   const [chatMode, setChatMode] = useState('Agent');
-  const [activeTab, setActiveTab] = useState('build');
+  const [internalActiveTab, setInternalActiveTab] = useState('build');
+  const activeTab = controlledActiveTab ?? internalActiveTab;
+  const setActiveTab = tab => {
+    if (onActiveTabChange) onActiveTabChange(tab);
+    if (controlledActiveTab === undefined) setInternalActiveTab(tab);
+  };
 
   const baseHeight = 48; // px
   const maxHeight = baseHeight * 2; // 200% of original
@@ -54,42 +59,66 @@ const AIChatPlaceholder = () => {
         ))}
       </div>
 
-      <div className="chat-body">
-        <p>Chat responses and actions will show here.</p>
-      </div>
-
-      {/* Rich Text Wrapper: border/background/rounded on this parent */}
-      <div className="chat-wrapper">
-        <textarea
-          ref={textareaRef}
-          className="chat-input-textarea"
-          placeholder="Type anything to start building..."
-          value={value}
-          onChange={e => setValue(e.target.value)}
-        />
-
-        <div className="chat-footer">
-          <div className="chat-footer-left">
-            <select
-              className="chat-mode"
-              value={chatMode}
-              onChange={e => setChatMode(e.target.value)}
-              aria-label="Chat mode"
-            >
-                <option>Agent</option>
-                <option>Ask</option>
+      {/* Only show chat-body and input when not on components tab */}
+      {isCreatingComponent ? (
+        <div className="component-form">
+          <label>
+            <div>Name</div>
+            <input type="text" className="component-input" />
+          </label>
+          <label>
+            <div>Use case</div>
+            <textarea className="component-input component-textarea" />
+          </label>
+          <label>
+            <div>Coding language</div>
+            <select className="component-input">
+              <option>React</option>
+              <option>Svelte</option>
+              <option>HTML</option>
             </select>
+          </label>
+        </div>
+      ) : activeTab !== 'components' && (
+        <>
+          <div className="chat-body">
+            <p>Chat responses and actions will show here.</p>
           </div>
 
-          <div className="chat-footer-right">
-            <button type="button" className="chat-send" title="Send">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M3 11L21 3L14 21L11 14L3 11Z" fill="currentColor" />
-              </svg>
-            </button>
+          {/* Rich Text Wrapper: border/background/rounded on this parent */}
+          <div className="chat-wrapper">
+            <textarea
+              ref={textareaRef}
+              className="chat-input-textarea"
+              placeholder="Type anything to start building..."
+              value={value}
+              onChange={e => setValue(e.target.value)}
+            />
+
+            <div className="chat-footer">
+              <div className="chat-footer-left">
+                <select
+                  className="chat-mode"
+                  value={chatMode}
+                  onChange={e => setChatMode(e.target.value)}
+                  aria-label="Chat mode"
+                >
+                    <option>Agent</option>
+                    <option>Ask</option>
+                </select>
+              </div>
+
+              <div className="chat-footer-right">
+                <button type="button" className="chat-send" title="Send">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 11L21 3L14 21L11 14L3 11Z" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
     </section>
   );
 };

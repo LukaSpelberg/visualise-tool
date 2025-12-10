@@ -5,6 +5,8 @@ import AIChatPlaceholder from './components/AIChatPlaceholder.jsx';
 import TerminalPane from './components/TerminalPane.jsx';
 import VisualPreview from './components/VisualPreview.jsx';
 import TopNav from './components/TopNav.jsx';
+import ComponentsPage from './components/ComponentsPage.jsx';
+import CreateComponentPage from './components/CreateComponentPage.jsx';
 // inline create handled inside ProjectTree
 
 const findFirstFile = nodes => {
@@ -41,6 +43,14 @@ const App = () => {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [viewMode, setViewMode] = useState('code'); // 'code' | 'visual'
   const [previewUrl, setPreviewUrl] = useState('');
+  const [aiActiveTab, setAiActiveTab] = useState('build');
+  const [creatingComponent, setCreatingComponent] = useState(false);
+
+  // wrapper so we can clear component-creation mode when switching away
+  const handleAiTabChange = tab => {
+    setAiActiveTab(tab);
+    if (tab !== 'components') setCreatingComponent(false);
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -272,44 +282,56 @@ const App = () => {
         terminalAvailable={hasTerminalAccess}
       />
       <div className="workspace">
-        <AIChatPlaceholder />
+        <AIChatPlaceholder activeTab={aiActiveTab} onActiveTabChange={handleAiTabChange} isCreatingComponent={creatingComponent} />
         {viewMode === 'code' ? (
-          <>
-            <div className={`editor-column ${terminalOpen ? 'has-terminal' : ''}`}>
-              <div className="editor-pane-wrapper">
-                <EditorPane
-                  fileName={activeFileName}
-                  code={code}
-                  onChange={setCode}
-                  warnings={0}
-                  errors={0}
-                  dirty={dirty}
-                  onSave={saveFile}
-                  viewMode={viewMode}
-                  onToggleView={toggleViewMode}
+          aiActiveTab === 'components' ? (
+            creatingComponent ? (
+              // show the create screen
+              <CreateComponentPage onBack={() => setCreatingComponent(false)} />
+            ) : (
+              <ComponentsPage
+                onImport={handleChooseFolder}
+                onCreate={() => setCreatingComponent(true)}
+              />
+            )
+          ) : (
+            <>
+              <div className={`editor-column ${terminalOpen ? 'has-terminal' : ''}`}>
+                <div className="editor-pane-wrapper">
+                  <EditorPane
+                    fileName={activeFileName}
+                    code={code}
+                    onChange={setCode}
+                    warnings={0}
+                    errors={0}
+                    dirty={dirty}
+                    onSave={saveFile}
+                    viewMode={viewMode}
+                    onToggleView={toggleViewMode}
+                  />
+                </div>
+                <TerminalPane
+                  isOpen={terminalOpen}
+                  bridge={fileBridge}
+                  cwd={folderPath}
+                  onClose={() => setTerminalOpen(false)}
                 />
               </div>
-              <TerminalPane
-                isOpen={terminalOpen}
-                bridge={fileBridge}
-                cwd={folderPath}
-                onClose={() => setTerminalOpen(false)}
+              <ProjectTree
+                folderPath={folderPath}
+                tree={tree}
+                activeFilePath={activeFilePath}
+                onSelectFile={handleSelectFile}
+                onChooseFolder={handleChooseFolder}
+                createRequest={createRequest}
+                clearCreateRequest={clearCreateRequest}
+                onRefresh={refreshTree}
+                isLoading={isLoading}
+                fsError={fsError}
+                hasFileSystemAccess={hasFileSystemAccess}
               />
-            </div>
-            <ProjectTree
-              folderPath={folderPath}
-              tree={tree}
-              activeFilePath={activeFilePath}
-              onSelectFile={handleSelectFile}
-              onChooseFolder={handleChooseFolder}
-              createRequest={createRequest}
-              clearCreateRequest={clearCreateRequest}
-              onRefresh={refreshTree}
-              isLoading={isLoading}
-              fsError={fsError}
-              hasFileSystemAccess={hasFileSystemAccess}
-            />
-          </>
+            </>
+          )
         ) : (
           <VisualPreview url={previewUrl} onBack={toggleViewMode} />
         )}

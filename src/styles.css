@@ -677,3 +677,152 @@ body {
 .preview-status.error {
   color: #ffb3b3;
 }
+
+/* Components panel should span the editor + tree columns */
+.panel-components {
+  grid-column: 2 / -1;
+  border-left: 1px solid var(--border);
+}
+
+/* Tweak the header: remove the bottom border and bring import button close to the heading */
+.panel-components > .panel-header {
+  border-bottom: none;
+  justify-content: flex-start;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+/* Import button style per design request */
+.panel-components .import-components-button {
+  background: #161923;
+  border: 1px solid #2C3245;
+  color: var(--text);
+  padding: 0.35rem 0.7rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.panel-components .import-components-button:hover {
+  opacity: 0.95;
+}
+
+/* Limit paragraph width so it doesn't run full width */
+.panel-components .components-description {
+  margin-top: 8px;
+  margin-bottom: 24px;
+  max-width: 500px;
+  color: var(--muted);
+}
+
+/* Create area left aligned */
+.panel-components .create-component-area {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 8px;
+}
+
+.panel-components .components-body {
+  padding: 0rem 1rem 1rem 0.7rem;
+}
+
+.panel-components > .panel-header h2 {
+  font-size: 1.08rem;
+}
+
+/* small left offset so the paragraph and create button align visually with the heading */
+.panel-components .components-description,
+.panel-components .create-component-area {
+  margin-left: 4px;
+}
+
+.panel-components .create-component-button {
+  width: 160px;
+  height: 160px;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px dashed #888;
+  background: transparent;
+  cursor: pointer;
+  text-align: center;
+}
+
+.panel-components .create-component-button .create-plus {
+  font-size: 56px;
+  line-height: 1;
+}
+
+.panel-components .create-component-button .create-label {
+  margin-top: 8px;
+}
+
+/* Create component page styles */
+.create-page .components-body {
+  padding: 1rem 1rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.device-selector { display:flex; gap:8px; }
+
+.create-header { align-items: center; position: relative; }
+.create-header-right { margin-left: auto; }
+
+.device-selector-centered { position: absolute; left: 50%; transform: translateX(-50%); top: 50%; transform: translate(-50%, -50%); }
+.device-selector-centered .device-selector { border: 1px solid var(--border); padding: 6px; border-radius: 6px; background: transparent; display:flex; gap:8px; }
+.device-selector-centered .mode-button { padding: 6px; }
+
+.create-back-button {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+}
+
+.create-upload-area { display:flex; justify-content:flex-start; flex: 1; min-height: 0; }
+
+.create-upload-box {
+  border: 2px solid rgba(77,80,91,0.25);
+  border-radius: 8px;
+  padding: 32px;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.create-upload-inner {
+  border: 1px solid rgba(77,80,91,0.12);
+  width: 420px;
+  height: 320px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  margin: 0 auto;
+  border-radius: 6px;
+  padding: 12px;
+  gap: 12px;
+  background: transparent;
+}
+
+.create-upload-text {
+  color: #4D505B;
+  text-align:center;
+}
+
+/* AI component form fields */
+.component-form { display:flex; flex-direction:column; gap:8px; padding:0.5rem; }
+.component-form label { color: var(--muted); font-size:0.85rem; }
+.component-input { width: 100%; padding:6px 8px; background:#121217; border:1px solid var(--border); border-radius:6px; color:var(--text); }
+.component-textarea { min-height:84px; resize:vertical; }
+
