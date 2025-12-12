@@ -5,7 +5,8 @@ const api = {
   readFile: filePath => ipcRenderer.invoke('read-file', filePath),
   saveFile: payload => ipcRenderer.invoke('save-file', payload),
   createEntry: payload => ipcRenderer.invoke('create-entry', payload),
-  readTree: folderPath => ipcRenderer.invoke('read-tree', folderPath)
+  readTree: folderPath => ipcRenderer.invoke('read-tree', folderPath),
+  analyzeImageWithOllama: payload => ipcRenderer.invoke('ollama-analyze-image', payload)
 };
 
 contextBridge.exposeInMainWorld('editorAPI', api);

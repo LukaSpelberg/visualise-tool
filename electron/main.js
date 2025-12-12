@@ -21,6 +21,10 @@ const IGNORED_DIRECTORIES = new Set(['.git', '.vscode', 'node_modules']);
 const terminals = new Map();
 let nextTerminalId = 1;
 
+const OLLAMA_MODEL = 'bsahane/Qwen2.5-VL-7B-Instruct:Q4_K_M_benxh';
+const DEFAULT_SYSTEM_PROMPT = 'You are a UI reverse-engineering assistant. Given a screenshot, describe the UI in concise build instructions for a frontend engineer. Mention layout regions, element types (buttons, inputs, cards), hierarchy, alignment, spacing, sizes, and notable styles. Avoid speculation about app logic; focus on what is visually observable.';
+const DEFAULT_USER_PROMPT = 'Analyse this UI screenshot and describe how to recreate it. Prefer short sentences that a frontend engineer can follow. Mention components, layout, sizing, spacing, text, and any media like iframes or images.';
+
 // Preview server state
 let previewServer = null;
 let previewPort = null;
@@ -357,6 +361,39 @@ const registerIpcHandlers = () => {
       return { filePath };
     } catch (error) {
       return { filePath, error: error.message };
+    }
+  });
+
+  ipcMain.handle('ollama-analyze-image', async (_event, { imageBase64, prompt, systemPrompt }) => {
+    try {
+      if (!imageBase64) {
+        return { success: false, error: 'No image provided.' };
+      }
+
+      const stripped = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+      const payload = {
+        model: OLLAMA_MODEL,
+        prompt: prompt || DEFAULT_USER_PROMPT,
+        system: systemPrompt || DEFAULT_SYSTEM_PROMPT,
+        images: [stripped],
+        stream: false
+      };
+
+      const res = await fetch('http://localhost:11434/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        return { success: false, error: `Ollama error ${res.status}: ${text}` };
+      }
+
+      const data = await res.json();
+      return { success: true, text: data?.response || '' };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
   });
 

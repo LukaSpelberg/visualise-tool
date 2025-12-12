@@ -786,7 +786,7 @@ body {
   cursor: pointer;
 }
 
-.create-upload-area { display:flex; justify-content:flex-start; flex: 1; min-height: 0; }
+.create-upload-area { display:flex; flex-direction:column; justify-content:flex-start; gap:12px; flex: 1; min-height: 0; }
 
 .create-upload-box {
   border: 2px solid rgba(77,80,91,0.25);
@@ -798,6 +798,7 @@ body {
   align-items: center;
   justify-content: center;
   height: 100%;
+  cursor: pointer;
 }
 
 .create-upload-inner {
@@ -819,6 +820,63 @@ body {
   color: #4D505B;
   text-align:center;
 }
+
+.create-upload-filename {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.create-preview {
+  height: 420px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(77,80,91,0.12);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.create-preview-image {
+  width: auto;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+  background: #0f1016;
+}
+
+.create-preview-block { display:flex; flex-direction:column; gap:6px; align-items:center; }
+.create-preview-actions { display:flex; gap:8px; align-items:center; }
+.create-reupload,
+.create-clear {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #0f1016;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.create-clear { border-color: rgba(255,107,107,0.5); color: #ff9b9b; }
+
+.create-header-right { margin-left: auto; display:flex; align-items:center; }
+.header-action-row { display:flex; gap:8px; }
+.header-action-button {
+  padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:#0f1016; color:var(--text); cursor:pointer;
+}
+.header-action-clear { border-color: rgba(255,107,107,0.5); color:#ff9b9b; }
+
+.create-analysis { margin-top: 8px; display:flex; flex-direction:column; gap:8px; }
+.create-status { color: var(--muted); }
+.create-error { color: #ff6b6b; }
+.create-analysis-result { background: #0f1016; border:1px solid var(--border); border-radius:8px; padding:12px; }
+.create-analysis-label { color: var(--muted); font-size:0.9rem; margin-bottom:6px; }
+.create-analysis-textarea { width:100%; min-height:160px; resize:vertical; padding:8px; background:#0f1016; border:1px solid var(--border); color:var(--text); border-radius:6px; font-family: inherit; }
 
 /* AI component form fields */
 .component-form { display:flex; flex-direction:column; gap:8px; padding:0.5rem; }

@@ -25,7 +25,8 @@ const api = {
     return () => ipcRenderer.removeListener('terminal-exit', wrapped);
   },
   startPreviewServer: ({ folderPath }) => ipcRenderer.invoke('start-preview-server', { folderPath }),
-  stopPreviewServer: () => ipcRenderer.invoke('stop-preview-server')
+  stopPreviewServer: () => ipcRenderer.invoke('stop-preview-server'),
+  analyzeImageWithOllama: payload => ipcRenderer.invoke('ollama-analyze-image', payload)
 };
 
 contextBridge.exposeInMainWorld('editorAPI', api);
