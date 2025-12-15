@@ -6,7 +6,10 @@ const api = {
   saveFile: payload => ipcRenderer.invoke('save-file', payload),
   createEntry: payload => ipcRenderer.invoke('create-entry', payload),
   readTree: folderPath => ipcRenderer.invoke('read-tree', folderPath),
-  analyzeImageWithOllama: payload => ipcRenderer.invoke('ollama-analyze-image', payload)
+  analyzeImageWithGemini: payload => ipcRenderer.invoke('gemini-analyze-image', payload),
+  analyzeImageWithOllama: payload => ipcRenderer.invoke('ollama-analyze-image', payload),
+  buildComponent: payload => ipcRenderer.invoke('build-component', payload),
+  selectComponentVariation: payload => ipcRenderer.invoke('select-component-variation', payload)
 };
 
 contextBridge.exposeInMainWorld('editorAPI', api);

@@ -45,11 +45,64 @@ const App = () => {
   const [previewUrl, setPreviewUrl] = useState('');
   const [aiActiveTab, setAiActiveTab] = useState('build');
   const [creatingComponent, setCreatingComponent] = useState(false);
+  const [componentForm, setComponentForm] = useState({ name: '', useCase: '', language: 'React' });
+  const [componentAnalysis, setComponentAnalysis] = useState('');
+  const [componentHasImage, setComponentHasImage] = useState(false);
+  const [componentBuild, setComponentBuild] = useState({ 
+    status: 'idle', 
+    variations: [], 
+    targetDir: '',
+    baseFileName: '',
+    extension: '',
+    selectedVariation: null,
+    error: '' 
+  });
+  const [componentFiles, setComponentFiles] = useState([]);
+  const [isTestMode, setIsTestMode] = useState(false);
+
+  const resetComponentWorkflow = useCallback(() => {
+    setComponentForm({ name: '', useCase: '', language: 'React' });
+    setComponentAnalysis('');
+    setComponentHasImage(false);
+    setIsTestMode(false);
+    setComponentBuild({ 
+      status: 'idle', 
+      variations: [], 
+      targetDir: '',
+      baseFileName: '',
+      extension: '',
+      selectedVariation: null,
+      error: '' 
+    });
+  }, []);
+
+  const extractComponentFiles = useCallback(nodes => {
+    if (!nodes) return [];
+    const results = [];
+    const walk = list => {
+      list.forEach(item => {
+        if (item.type === 'folder' && item.name === 'componentAI') {
+          (item.children || []).forEach(child => {
+            if (child.type === 'file') {
+              results.push({ name: child.name, path: child.path });
+            }
+          });
+        } else if (item.type === 'folder' && item.children?.length) {
+          walk(item.children);
+        }
+      });
+    };
+    walk(nodes);
+    return results;
+  }, []);
 
   // wrapper so we can clear component-creation mode when switching away
   const handleAiTabChange = tab => {
     setAiActiveTab(tab);
-    if (tab !== 'components') setCreatingComponent(false);
+    if (tab !== 'components') {
+      setCreatingComponent(false);
+      resetComponentWorkflow();
+    }
   };
 
   useEffect(() => {
@@ -93,6 +146,87 @@ const App = () => {
 
   const hasFileSystemAccess = Boolean(fileBridge?.selectFolder);
   const hasTerminalAccess = Boolean(fileBridge?.startTerminal);
+
+  const componentFieldsComplete = Boolean(
+    componentForm.name.trim() && componentForm.useCase.trim() && componentForm.language.trim()
+  );
+  const analysisReady = componentAnalysis.trim().length > 0;
+
+  const handleComponentFormChange = useCallback(updates => {
+    setComponentForm(prev => ({ ...prev, ...updates }));
+    setComponentBuild(prev => (prev.status === 'idle' ? prev : { 
+      status: 'idle', 
+      variations: [], 
+      targetDir: '',
+      baseFileName: '',
+      extension: '',
+      selectedVariation: null,
+      error: '' 
+    }));
+  }, []);
+
+  const handleAnalysisChange = useCallback(value => {
+    setComponentAnalysis(value);
+    setComponentBuild(prev => (prev.status === 'idle' ? prev : { 
+      status: 'idle', 
+      variations: [], 
+      targetDir: '',
+      baseFileName: '',
+      extension: '',
+      selectedVariation: null,
+      error: '' 
+    }));
+  }, []);
+
+  const handleImageStatusChange = useCallback(hasImage => {
+    setComponentHasImage(hasImage);
+    if (!hasImage) {
+      handleAnalysisChange('');
+    }
+  }, [handleAnalysisChange]);
+
+  const guessLanguageLabel = useCallback(fileName => {
+    const ext = fileName?.split('.').pop()?.toLowerCase() || '';
+    if (ext === 'jsx' || ext === 'tsx' || ext === 'js' || ext === 'ts') return 'React';
+    if (ext === 'svelte') return 'Svelte';
+    if (ext === 'vue') return 'Vue';
+    if (ext === 'html' || ext === 'htm') return 'HTML';
+    return 'Plain HTML/CSS';
+  }, []);
+
+  const handleOpenComponent = useCallback(async filePath => {
+    if (!fileBridge?.readFile || !filePath) return;
+    try {
+      const res = await fileBridge.readFile(filePath);
+      if (res?.error) {
+        window.alert(res.error);
+        return;
+      }
+      const namePart = getNameFromPath(filePath).replace(/\.[^.]+$/, '');
+      const language = guessLanguageLabel(filePath);
+      setComponentForm({ name: namePart, useCase: 'Existing component', language });
+      setComponentAnalysis('');
+      setComponentHasImage(false);
+      setComponentBuild({ 
+        status: 'done-selected', 
+        variations: [],
+        targetDir: '',
+        baseFileName: '',
+        extension: '',
+        selectedVariation: {
+          id: 1,
+          code: res.content || '',
+          filePath,
+          success: true
+        },
+        error: '' 
+      });
+      setAiActiveTab('components');
+      setCreatingComponent(true);
+    } catch (err) {
+      window.alert(err?.message || 'Failed to open component');
+    }
+  }, [fileBridge, guessLanguageLabel]);
 
   const [savedContent, setSavedContent] = useState(null);
   const dirty = code !== null && savedContent !== null && code !== savedContent;
@@ -222,6 +356,7 @@ const App = () => {
 
       setFolderPath(selection.folderPath);
       setTree(selection.tree);
+      setComponentFiles(extractComponentFiles(selection.tree));
 
       const firstFile = findFirstFile(selection.tree);
       if (firstFile) {
@@ -243,6 +378,7 @@ const App = () => {
       const res = await fileBridge.readTree(pathToRead || folderPath);
       if (res?.success) {
         setTree(res.tree);
+        setComponentFiles(extractComponentFiles(res.tree));
         return res.tree;
       }
     } catch (err) {
@@ -251,6 +387,115 @@ const App = () => {
     }
     return null;
   }, [fileBridge, folderPath]);
+
+  const handleBuildComponent = useCallback(async () => {
+    if (!componentFieldsComplete || !analysisReady) return;
+
+    if (!window.editorAPI?.buildComponent) {
+      window.alert('Component builder is only available in the Electron shell.');
+      return;
+    }
+
+    if (!folderPath) {
+      window.alert('Open a folder before building a component.');
+      return;
+    }
+
+    setComponentBuild({ 
+      status: 'building', 
+      variations: [], 
+      targetDir: '',
+      baseFileName: '',
+      extension: '',
+      selectedVariation: null,
+      error: '' 
+    });
+
+    try {
+      const res = await window.editorAPI.buildComponent({
+        folderPath,
+        name: componentForm.name,
+        useCase: componentForm.useCase,
+        language: componentForm.language,
+        analysis: componentAnalysis
+      });
+
+      if (!res?.success) {
+        setComponentBuild({ 
+          status: 'error', 
+          variations: [], 
+          targetDir: '',
+          baseFileName: '',
+          extension: '',
+          selectedVariation: null,
+          error: res?.error || 'Build failed.' 
+        });
+        return;
+      }
+
+      setComponentBuild({ 
+        status: 'done', 
+        variations: res.variations || [],
+        targetDir: res.targetDir || '',
+        baseFileName: res.baseFileName || '',
+        extension: res.variations?.[0]?.extension || '',
+        selectedVariation: null,
+        error: '' 
+      });
+    } catch (err) {
+      setComponentBuild({ 
+        status: 'error', 
+        variations: [], 
+        targetDir: '',
+        baseFileName: '',
+        extension: '',
+        selectedVariation: null,
+        error: err?.message || 'Unexpected build error.' 
+      });
+    }
+  }, [analysisReady, componentAnalysis, componentFieldsComplete, componentForm.language, componentForm.name, componentForm.useCase, folderPath]);
+
+  const handleSelectVariation = useCallback(async (selectedId) => {
+    if (!window.editorAPI?.selectComponentVariation) {
+      window.alert('Component selection is only available in the Electron shell.');
+      return;
+    }
+
+    try {
+      const res = await window.editorAPI.selectComponentVariation({
+        selectedId,
+        variations: componentBuild.variations,
+        targetDir: componentBuild.targetDir,
+        baseFileName: componentBuild.baseFileName,
+        extension: componentBuild.extension
+      });
+
+      if (!res?.success) {
+        window.alert(res?.error || 'Failed to select variation.');
+        return;
+      }
+
+      // Update state to show the selected variation
+      const selectedVariation = componentBuild.variations.find(v => v.id === selectedId);
+      setComponentBuild(prev => ({ 
+        ...prev,
+        status: 'done-selected',
+        selectedVariation: {
+          ...selectedVariation,
+          filePath: res.filePath,
+          code: res.code
+        }
+      }));
+
+      // Refresh the tree to show the new file
+      const newTree = await refreshTree();
+      if (newTree) {
+        setComponentFiles(extractComponentFiles(newTree));
+      }
+    } catch (err) {
+      window.alert(err?.message || 'Failed to select variation.');
+    }
+  }, [componentBuild.variations, componentBuild.targetDir, componentBuild.baseFileName, componentBuild.extension, refreshTree, extractComponentFiles]);
 
   const [createRequest, setCreateRequest] = useState(null);
 
@@ -282,16 +527,53 @@ const App = () => {
         terminalAvailable={hasTerminalAccess}
       />
       <div className="workspace">
-        <AIChatPlaceholder activeTab={aiActiveTab} onActiveTabChange={handleAiTabChange} isCreatingComponent={creatingComponent} />
+        <AIChatPlaceholder
+          activeTab={aiActiveTab}
+          onActiveTabChange={handleAiTabChange}
+          isCreatingComponent={creatingComponent}
+          componentForm={componentForm}
+          onComponentFormChange={handleComponentFormChange}
+          fieldsComplete={componentFieldsComplete}
+          hasImage={componentHasImage}
+          analysisReady={analysisReady}
+          onBuild={handleBuildComponent}
+          buildState={componentBuild}
+        />
         {viewMode === 'code' ? (
           aiActiveTab === 'components' ? (
             creatingComponent ? (
               // show the create screen
-              <CreateComponentPage onBack={() => setCreatingComponent(false)} />
+              <CreateComponentPage
+                onBack={() => {
+                  resetComponentWorkflow();
+                  setCreatingComponent(false);
+                }}
+                fieldsComplete={componentFieldsComplete}
+                analysis={componentAnalysis}
+                onAnalysisChange={handleAnalysisChange}
+                hasImage={componentHasImage}
+                onImageStatusChange={handleImageStatusChange}
+                componentForm={componentForm}
+                buildState={componentBuild}
+                onSelectVariation={handleSelectVariation}
+                isTestMode={isTestMode}
+              />
             ) : (
               <ComponentsPage
                 onImport={handleChooseFolder}
-                onCreate={() => setCreatingComponent(true)}
+                onCreate={() => {
+                  resetComponentWorkflow();
+                  setCreatingComponent(true);
+                }}
+                onCreateTest={() => {
+                  resetComponentWorkflow();
+                  setIsTestMode(true);
+                  setComponentForm({ name: 'TestComponent', useCase: 'Testing the component builder', language: 'React' });
+                  setComponentAnalysis('');
+                  setCreatingComponent(true);
+                }}
+                components={componentFiles}
+                onOpenComponent={handleOpenComponent}
               />
             )
           ) : (

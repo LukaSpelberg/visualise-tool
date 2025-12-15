@@ -26,7 +26,10 @@ const api = {
   },
   startPreviewServer: ({ folderPath }) => ipcRenderer.invoke('start-preview-server', { folderPath }),
   stopPreviewServer: () => ipcRenderer.invoke('stop-preview-server'),
-  analyzeImageWithOllama: payload => ipcRenderer.invoke('ollama-analyze-image', payload)
+  analyzeImageWithGemini: payload => ipcRenderer.invoke('gemini-analyze-image', payload),
+  analyzeImageWithOllama: payload => ipcRenderer.invoke('ollama-analyze-image', payload),
+  buildComponent: payload => ipcRenderer.invoke('build-component', payload),
+  selectComponentVariation: payload => ipcRenderer.invoke('select-component-variation', payload)
 };
 
 contextBridge.exposeInMainWorld('editorAPI', api);

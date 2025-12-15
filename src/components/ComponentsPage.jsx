@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ComponentsPage = ({ onImport, onCreate }) => {
+const ComponentsPage = ({ onImport, onCreate, components = [], onOpenComponent, onCreateTest }) => {
   return (
     <section className="panel panel-components">
       <div className="panel-header components-header">
@@ -15,7 +15,7 @@ const ComponentsPage = ({ onImport, onCreate }) => {
           This is the place where you make your building blocks that the AI will use when making your design reality.
         </p>
 
-        <div className="create-component-area">
+        <div className="components-grid">
           <button
             type="button"
             className="create-component-button"
@@ -25,6 +25,29 @@ const ComponentsPage = ({ onImport, onCreate }) => {
             <div className="create-plus">+</div>
             <div className="create-label">Create new component</div>
           </button>
+
+          <button
+            type="button"
+            className="test-component-button"
+            onClick={onCreateTest}
+            aria-label="Test component builder"
+          >
+            <div className="create-plus">⚡</div>
+            <div className="create-label">Test Mode (Manual Input)</div>
+          </button>
+
+          {components.map(item => (
+            <button
+              key={item.path}
+              type="button"
+              className="component-card"
+              onClick={() => onOpenComponent?.(item.path)}
+              title={item.path}
+            >
+              <div className="component-card-name">{item.name}</div>
+              <div className="component-card-meta">componentAI</div>
+            </button>
+          ))}
         </div>
       </div>
     </section>

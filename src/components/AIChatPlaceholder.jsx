@@ -4,7 +4,18 @@ import animateIcon from '../assets/icons/animate.svg';
 import componentsIcon from '../assets/icons/components.svg';
 import settingsIcon from '../assets/icons/settings.svg';
 
-const AIChatPlaceholder = ({ activeTab: controlledActiveTab, onActiveTabChange, isCreatingComponent }) => {
+const AIChatPlaceholder = ({
+  activeTab: controlledActiveTab,
+  onActiveTabChange,
+  isCreatingComponent,
+  componentForm = {},
+  onComponentFormChange,
+  fieldsComplete,
+  hasImage,
+  analysisReady,
+  onBuild,
+  buildState = {}
+}) => {
   const textareaRef = useRef(null);
   const [value, setValue] = useState('');
   const [chatMode, setChatMode] = useState('Agent');
@@ -26,6 +37,8 @@ const AIChatPlaceholder = ({ activeTab: controlledActiveTab, onActiveTabChange, 
     ta.style.height = `${next}px`;
     ta.style.overflow = ta.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [value]);
+
+  const buildDisabled = !fieldsComplete || !analysisReady || buildState?.status === 'building';
 
   return (
     <section className="panel panel-chat">
@@ -61,23 +74,48 @@ const AIChatPlaceholder = ({ activeTab: controlledActiveTab, onActiveTabChange, 
 
       {/* Only show chat-body and input when not on components tab */}
       {isCreatingComponent ? (
-        <div className="component-form">
+        <div className={`component-form ${!fieldsComplete ? 'component-form-glow' : ''}`}>
           <label>
             <div>Name</div>
-            <input type="text" className="component-input" />
+            <input type="text" className="component-input" value={componentForm.name || ''} onChange={e => onComponentFormChange?.({ name: e.target.value })} />
           </label>
           <label>
             <div>Use case</div>
-            <textarea className="component-input component-textarea" />
+            <textarea className="component-input component-textarea" value={componentForm.useCase || ''} onChange={e => onComponentFormChange?.({ useCase: e.target.value })} />
           </label>
           <label>
             <div>Coding language</div>
-            <select className="component-input">
+            <select className="component-input" value={componentForm.language || 'React'} onChange={e => onComponentFormChange?.({ language: e.target.value })}>
               <option>React</option>
               <option>Svelte</option>
               <option>HTML</option>
+              <option>Vue</option>
+              <option>Plain HTML/CSS</option>
             </select>
           </label>
+
+          <div className="component-hint-row">
+            {!fieldsComplete && <span className="component-hint">Fill every field to unlock image upload.</span>}
+            {fieldsComplete && !hasImage && <span className="component-hint">Great. Upload the design image next.</span>}
+            {hasImage && !analysisReady && <span className="component-hint">Waiting for the image interpretation…</span>}
+            {analysisReady && <span className="component-hint">Image interpreted. You can build now.</span>}
+          </div>
+
+          <div className="build-button-row">
+            <button
+              type="button"
+              className={`build-button ${buildDisabled ? 'disabled' : ''}`}
+              onClick={onBuild}
+              disabled={buildDisabled}
+            >
+              {buildState?.status === 'building' ? 'Building…' : 'Build'}
+            </button>
+            {buildState?.status === 'building' && <div className="build-inline-loader" aria-label="Building" />}
+            {buildState?.status === 'error' && <div className="build-inline-error">{buildState.error}</div>}
+            {buildState?.status === 'done' && buildState.filePath && (
+              <div className="build-inline-success">Built to {buildState.filePath}</div>
+            )}
+          </div>
         </div>
       ) : activeTab !== 'components' && (
         <>
