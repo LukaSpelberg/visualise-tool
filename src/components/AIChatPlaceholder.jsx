@@ -117,7 +117,7 @@ const AIChatPlaceholder = ({
             )}
           </div>
         </div>
-      ) : activeTab !== 'components' && (
+      ) : activeTab !== 'components' && activeTab !== 'settings' && (
         <>
           <div className="chat-body">
             <p>Chat responses and actions will show here.</p>

@@ -7,6 +7,7 @@ import VisualPreview from './components/VisualPreview.jsx';
 import TopNav from './components/TopNav.jsx';
 import ComponentsPage from './components/ComponentsPage.jsx';
 import CreateComponentPage from './components/CreateComponentPage.jsx';
+import SettingsPage from './components/SettingsPage.jsx';
 // inline create handled inside ProjectTree
 
 const findFirstFile = nodes => {
@@ -412,12 +413,29 @@ const App = () => {
     });
 
     try {
+      // Load user settings from project file to provide as context
+      let userSettings = null;
+      try {
+        const settingsPath = `${folderPath}/.visualise-settings.json`;
+        const settingsResult = await fileBridge?.readFile?.(settingsPath);
+        if (settingsResult?.success && settingsResult.content) {
+          const parsed = JSON.parse(settingsResult.content);
+          // Only use settings if they're enabled
+          if (parsed.enabled !== false) {
+            userSettings = parsed;
+          }
+        }
+      } catch (e) {
+        // Settings file doesn't exist, continue without it
+      }
+
       const res = await window.editorAPI.buildComponent({
         folderPath,
         name: componentForm.name,
         useCase: componentForm.useCase,
         language: componentForm.language,
-        analysis: componentAnalysis
+        analysis: componentAnalysis,
+        userSettings
       });
 
       if (!res?.success) {
@@ -497,6 +515,60 @@ const App = () => {
     }
   }, [componentBuild.variations, componentBuild.targetDir, componentBuild.baseFileName, componentBuild.extension, refreshTree, extractComponentFiles]);
 
+  const handleEditElement = useCallback(async ({ element, prompt, fullCode }) => {
+    if (!window.editorAPI?.editComponentElement) {
+      window.alert('Element editing is only available in the Electron shell.');
+      return;
+    }
+
+    try {
+      // Load user settings from project file to provide as context
+      let userSettings = null;
+      try {
+        const settingsPath = `${folderPath}/.visualise-settings.json`;
+        const settingsResult = await fileBridge?.readFile?.(settingsPath);
+        if (settingsResult?.success && settingsResult.content) {
+          const parsed = JSON.parse(settingsResult.content);
+          // Only use settings if they're enabled
+          if (parsed.enabled !== false) {
+            userSettings = parsed;
+          }
+        }
+      } catch (e) {
+        // Settings file doesn't exist, continue without it
+      }
+
+      const res = await window.editorAPI.editComponentElement({
+        element,
+        prompt,
+        fullCode,
+        language: componentForm.language,
+        userSettings
+      });
+
+      if (!res?.success) {
+        window.alert(res?.error || 'Failed to edit element.');
+        return;
+      }
+
+      // Update the component code with the edited version
+      setComponentBuild(prev => ({
+        ...prev,
+        selectedVariation: {
+          ...prev.selectedVariation,
+          code: res.updatedCode
+        }
+      }));
+
+      // Save to file if it exists
+      if (componentBuild.selectedVariation?.filePath && fileBridge?.writeFile) {
+        await fileBridge.writeFile(componentBuild.selectedVariation.filePath, res.updatedCode);
+      }
+    } catch (err) {
+      window.alert(err?.message || 'Failed to edit element.');
+    }
+  }, [componentForm.language, componentBuild.selectedVariation?.filePath, fileBridge]);
+
   const [createRequest, setCreateRequest] = useState(null);
 
   const onCreateEntry = useCallback(({ basePath, type }) => {
@@ -556,6 +628,7 @@ const App = () => {
                 componentForm={componentForm}
                 buildState={componentBuild}
                 onSelectVariation={handleSelectVariation}
+                onEditElement={handleEditElement}
                 isTestMode={isTestMode}
               />
             ) : (
@@ -576,6 +649,11 @@ const App = () => {
                 onOpenComponent={handleOpenComponent}
               />
             )
+          ) : aiActiveTab === 'settings' ? (
+            <SettingsPage
+              folderPath={folderPath}
+              fileBridge={fileBridge}
+            />
           ) : (
             <>
               <div className={`editor-column ${terminalOpen ? 'has-terminal' : ''}`}>

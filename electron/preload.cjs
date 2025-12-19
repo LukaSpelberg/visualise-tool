@@ -4,6 +4,10 @@ const api = {
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   readFile: filePath => ipcRenderer.invoke('read-file', filePath),
   saveFile: payload => ipcRenderer.invoke('save-file', payload),
+  writeFile: (filePath, content, options) => ipcRenderer.invoke('save-file', { filePath, content, ...options }),
+  writeFileBinary: (filePath, dataUrl) => ipcRenderer.invoke('write-file-binary', { filePath, dataUrl }),
+  copyFile: (sourcePath, targetPath) => ipcRenderer.invoke('copy-file', { sourcePath, targetPath }),
+  ensureDir: dirPath => ipcRenderer.invoke('ensure-dir', { dirPath }),
   createEntry: payload => ipcRenderer.invoke('create-entry', payload),
   readTree: folderPath => ipcRenderer.invoke('read-tree', folderPath),
   renameEntry: payload => ipcRenderer.invoke('rename-entry', payload),
@@ -29,7 +33,8 @@ const api = {
   analyzeImageWithGemini: payload => ipcRenderer.invoke('gemini-analyze-image', payload),
   analyzeImageWithOllama: payload => ipcRenderer.invoke('ollama-analyze-image', payload),
   buildComponent: payload => ipcRenderer.invoke('build-component', payload),
-  selectComponentVariation: payload => ipcRenderer.invoke('select-component-variation', payload)
+  selectComponentVariation: payload => ipcRenderer.invoke('select-component-variation', payload),
+  editComponentElement: payload => ipcRenderer.invoke('edit-component-element', payload)
 };
 
 contextBridge.exposeInMainWorld('editorAPI', api);

@@ -39,7 +39,8 @@ const CreateComponentPage = ({
   buildState = {},
   componentForm = {},
   onSelectVariation,
-  isTestMode = false
+  isTestMode = false,
+  onEditElement
 }) => {
   const [device, setDevice] = useState('desktop');
   const [selectedFile, setSelectedFile] = useState(null);
@@ -47,7 +48,12 @@ const CreateComponentPage = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [buildView, setBuildView] = useState('visual');
+  const [editMode, setEditMode] = useState(false);
+  const [selectedElement, setSelectedElement] = useState(null);
+  const [editPrompt, setEditPrompt] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef(null);
+  const previewIframeRef = useRef(null);
   const typingInterval = useRef(null);
   const typingPhase = useRef('typing');
   const typingIndex = useRef(0);
@@ -78,8 +84,140 @@ const CreateComponentPage = ({
   useEffect(() => {
     if (buildState?.status === 'done-selected') {
       setBuildView('visual');
+      setEditMode(false);
+      setSelectedElement(null);
+      setEditPrompt('');
     }
   }, [buildState?.status]);
+
+  // Enable/disable element selection in iframe
+  useEffect(() => {
+    if (!editMode || buildView !== 'visual' || !previewIframeRef.current) {
+      return;
+    }
+
+    const iframe = previewIframeRef.current;
+    
+    const setupInspector = () => {
+      try {
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!iframeDoc) return;
+
+        // Inject inspector styles
+        let styleEl = iframeDoc.getElementById('inspector-styles');
+        if (!styleEl) {
+          styleEl = iframeDoc.createElement('style');
+          styleEl.id = 'inspector-styles';
+          styleEl.textContent = `
+            .inspector-highlight {
+              outline: 2px solid #00d9ff !important;
+              outline-offset: 2px !important;
+              cursor: pointer !important;
+            }
+            .inspector-selected {
+              outline: 3px solid #00ff88 !important;
+              outline-offset: 2px !important;
+              background: rgba(0, 255, 136, 0.1) !important;
+            }
+          `;
+          iframeDoc.head.appendChild(styleEl);
+        }
+
+        // Add hover and click handlers
+        const handleMouseOver = (e) => {
+          if (e.target.classList.contains('inspector-selected')) return;
+          e.target.classList.add('inspector-highlight');
+        };
+
+        const handleMouseOut = (e) => {
+          e.target.classList.remove('inspector-highlight');
+        };
+
+        const handleClick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Remove previous selection
+          const prevSelected = iframeDoc.querySelector('.inspector-selected');
+          if (prevSelected) {
+            prevSelected.classList.remove('inspector-selected', 'inspector-highlight');
+          }
+
+          // Add new selection
+          e.target.classList.add('inspector-selected');
+          e.target.classList.remove('inspector-highlight');
+
+          // Extract element info
+          const tagName = e.target.tagName.toLowerCase();
+          const classes = Array.from(e.target.classList)
+            .filter(c => !c.startsWith('inspector-'))
+            .join(' ');
+          const innerHTML = e.target.innerHTML;
+          const outerHTML = e.target.outerHTML;
+
+          setSelectedElement({
+            tagName,
+            classes,
+            innerHTML: innerHTML.length > 200 ? innerHTML.substring(0, 200) + '...' : innerHTML,
+            outerHTML: outerHTML.length > 500 ? outerHTML.substring(0, 500) + '...' : outerHTML,
+            fullOuterHTML: outerHTML
+          });
+        };
+
+        iframeDoc.body.addEventListener('mouseover', handleMouseOver);
+        iframeDoc.body.addEventListener('mouseout', handleMouseOut);
+        iframeDoc.body.addEventListener('click', handleClick);
+
+        return () => {
+          iframeDoc.body.removeEventListener('mouseover', handleMouseOver);
+          iframeDoc.body.removeEventListener('mouseout', handleMouseOut);
+          iframeDoc.body.removeEventListener('click', handleClick);
+          
+          // Clean up styles
+          const selected = iframeDoc.querySelector('.inspector-selected');
+          if (selected) {
+            selected.classList.remove('inspector-selected', 'inspector-highlight');
+          }
+        };
+      } catch (err) {
+        console.error('Failed to setup inspector:', err);
+      }
+    };
+
+    // Wait for iframe to load
+    const timer = setTimeout(setupInspector, 100);
+    iframe.addEventListener('load', setupInspector);
+
+    return () => {
+      clearTimeout(timer);
+      iframe.removeEventListener('load', setupInspector);
+    };
+  }, [editMode, buildView]);
+
+  const handleToggleEditMode = () => {
+    setEditMode(!editMode);
+    setSelectedElement(null);
+    setEditPrompt('');
+  };
+
+  const handleSubmitEdit = async () => {
+    if (!editPrompt.trim() || !selectedElement || !onEditElement) return;
+
+    setIsEditing(true);
+    try {
+      await onEditElement({
+        element: selectedElement,
+        prompt: editPrompt,
+        fullCode: codeForDisplay
+      });
+      setEditPrompt('');
+      setSelectedElement(null);
+    } catch (err) {
+      console.error('Edit failed:', err);
+    } finally {
+      setIsEditing(false);
+    }
+  };
 
   useEffect(() => {
     const sentences = cookingSentences;
@@ -431,7 +569,44 @@ const CreateComponentPage = ({
               <div className="build-result-head">
                 <div className="build-result-title">Component ready</div>
                 {buildState.selectedVariation?.filePath && <div className="build-result-path">Saved to {buildState.selectedVariation.filePath}</div>}
+                {buildView === 'visual' && (
+                  <button
+                    type="button"
+                    className={`edit-mode-toggle ${editMode ? 'active' : ''}`}
+                    onClick={handleToggleEditMode}
+                  >
+                    {editMode ? '✓ Edit Mode' : '✏️ Edit Mode'}
+                  </button>
+                )}
               </div>
+              {editMode && selectedElement && (
+                <div className="element-editor-panel">
+                  <div className="element-info">
+                    <div className="element-info-label">Selected Element:</div>
+                    <div className="element-info-tag">
+                      &lt;{selectedElement.tagName}
+                      {selectedElement.classes && ` class="${selectedElement.classes}"`}&gt;
+                    </div>
+                  </div>
+                  <div className="element-prompt-section">
+                    <textarea
+                      className="element-prompt-input"
+                      value={editPrompt}
+                      onChange={e => setEditPrompt(e.target.value)}
+                      placeholder="Describe how you want to modify this element... (e.g., 'make it blue', 'add padding', 'change the text to...')"
+                      rows={3}
+                    />
+                    <button
+                      type="button"
+                      className="element-submit-button"
+                      onClick={handleSubmitEdit}
+                      disabled={!editPrompt.trim() || isEditing}
+                    >
+                      {isEditing ? 'Applying changes...' : 'Apply Edit'}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className="build-result-tabs">
                 <button
                   type="button"
@@ -451,9 +626,9 @@ const CreateComponentPage = ({
               {buildView === 'visual' ? (
                 <div className="build-result-preview">
                   {isHtmlLike && previewDocHtml ? (
-                    <iframe title="component-preview" srcDoc={previewDocHtml} className="build-preview-iframe" />
+                    <iframe ref={previewIframeRef} title="component-preview" srcDoc={previewDocHtml} className="build-preview-iframe" />
                   ) : isReactLike && previewDocReact ? (
-                    <iframe title="component-preview" srcDoc={previewDocReact} className="build-preview-iframe" />
+                    <iframe ref={previewIframeRef} title="component-preview" srcDoc={previewDocReact} className="build-preview-iframe" />
                   ) : (
                     <div className="build-preview-unavailable">Visual preview is available for React/JSX/HTML outputs.</div>
                   )}

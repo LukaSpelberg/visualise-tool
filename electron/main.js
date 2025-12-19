@@ -71,7 +71,7 @@ Dissect the visual hierarchy and styling details. Be highly specific about spaci
 
 If there are images, describe their aspect ratio and corner rounding.
 
-If the image contains more than a single component, Return an error that this image is too complex and goes beyond your scope.
+If the image contains more than a single component or does not look like a component, Return an error that this image is too complex and goes beyond your scope.
 `;
 // Preview server state
 let previewServer = null;
@@ -363,9 +363,9 @@ const registerIpcHandlers = () => {
   ipcMain.handle('read-file', async (_event, filePath) => {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
-      return { filePath, content };
+      return { success: true, filePath, content };
     } catch (error) {
-      return { filePath, error: error.message };
+      return { success: false, filePath, error: error.message };
     }
   });
 
@@ -435,12 +435,57 @@ const registerIpcHandlers = () => {
     }
   });
 
-  ipcMain.handle('save-file', async (_event, { filePath, content }) => {
+  ipcMain.handle('save-file', async (_event, { filePath, content, encoding }) => {
     try {
-      await fs.writeFile(filePath, content, 'utf-8');
-      return { filePath };
+      // Support base64 encoding for binary files
+      if (encoding === 'base64') {
+        const buffer = Buffer.from(content, 'base64');
+        await fs.writeFile(filePath, buffer);
+      } else {
+        await fs.writeFile(filePath, content, 'utf-8');
+      }
+      return { success: true, filePath };
     } catch (error) {
-      return { filePath, error: error.message };
+      return { success: false, filePath, error: error.message };
+    }
+  });
+
+  ipcMain.handle('ensure-dir', async (_event, { dirPath }) => {
+    try {
+      await fs.mkdir(dirPath, { recursive: true });
+      return { success: true, path: dirPath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('write-file-binary', async (_event, { filePath, dataUrl }) => {
+    try {
+      // Ensure the directory exists
+      const dir = path.dirname(filePath);
+      await fs.mkdir(dir, { recursive: true });
+      
+      // Extract base64 data from data URL
+      const base64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      const buffer = Buffer.from(base64Data, 'base64');
+      
+      await fs.writeFile(filePath, buffer);
+      return { success: true, filePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('copy-file', async (_event, { sourcePath, targetPath }) => {
+    try {
+      // Ensure the target directory exists
+      const dir = path.dirname(targetPath);
+      await fs.mkdir(dir, { recursive: true });
+      
+      await fs.copyFile(sourcePath, targetPath);
+      return { success: true, filePath: targetPath };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
   });
 
@@ -534,11 +579,41 @@ const registerIpcHandlers = () => {
     }
   });
 
-  ipcMain.handle('build-component', async (_event, { folderPath, name, useCase, language, analysis }) => {
+  ipcMain.handle('build-component', async (_event, { folderPath, name, useCase, language, analysis, userSettings }) => {
     try {
       const trimmedName = (name || '').trim();
       const trimmedUseCase = (useCase || '').trim();
       const trimmedAnalysis = (analysis || '').trim();
+
+      // Build design system context from user settings
+      let designSystemContext = '';
+      if (userSettings) {
+        const parts = [];
+        
+        // Colors
+        if (userSettings.colors && Array.isArray(userSettings.colors)) {
+          const colorLines = userSettings.colors.map(c => `  - ${c.name}: ${c.value}`).join('\n');
+          parts.push(`**Color Palette:**\n${colorLines}`);
+        }
+        
+        // Typography
+        if (userSettings.fonts) {
+          const fontLines = Object.entries(userSettings.fonts).map(([el, config]) => {
+            const caseStr = config.case && config.case !== 'none' ? `, text-transform: ${config.case}` : '';
+            return `  - ${el.toUpperCase()}: ${config.family}, ${config.weight} weight, ${config.size}px${caseStr}`;
+          }).join('\n');
+          parts.push(`**Typography:**\n${fontLines}`);
+        }
+        
+        // Code Language preference
+        if (userSettings.codeLanguage) {
+          parts.push(`**Preferred Framework:** ${userSettings.codeLanguage}`);
+        }
+        
+        if (parts.length > 0) {
+          designSystemContext = `\n\n**USER'S DESIGN SYSTEM (use these values):**\n${parts.join('\n\n')}`;
+        }
+      }
 
       if (!folderPath) {
         return { success: false, error: 'Open a folder before building the component.' };
@@ -566,13 +641,16 @@ Use case: ${trimmedUseCase}.
 
 Image interpretation (authoritative):
 ${trimmedAnalysis}
+${designSystemContext}
 
 Requirements:
 - Return ONLY the final source code, no markdown fences, no commentary.
 - Keep dependencies minimal; prefer inline CSS or component-scoped styles.
 - If React/TSX/JSX, export a default component that renders the UI.
 - If HTML, include inline styles and keep everything self contained.
-- Preserve any colors, spacing, and layout hints present in the interpretation.
+- Use the colors from the user's design system palette above. Match color names to appropriate uses (e.g., primary for main actions, accent for highlights). If the interpetation suggests colors not in the palette, follow the interpretation. if they look like close matches to the palette, prefer the palette colors.
+-  Use the typography settings from the design system. Apply the correct font-family, font-weight, font-size, and text-transform for each heading/text element.
+- Preserve any spacing and layout hints present in the interpretation.
 - Follow the interpretation as closely as possible.
 `;
 
@@ -654,6 +732,91 @@ Requirements:
         success: true, 
         filePath: finalFilePath,
         code: selected.code
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('edit-component-element', async (_event, { element, prompt, fullCode, language, userSettings }) => {
+    try {
+      if (!element || !prompt || !fullCode) {
+        return { success: false, error: 'Element info, prompt, and code are required.' };
+      }
+
+      // Build design system context from user settings
+      let designSystemContext = '';
+      if (userSettings) {
+        const parts = [];
+        
+        if (userSettings.colors && Array.isArray(userSettings.colors)) {
+          const colorLines = userSettings.colors.map(c => `  - ${c.name}: ${c.value}`).join('\n');
+          parts.push(`**Color Palette:**\n${colorLines}`);
+        }
+        
+        if (userSettings.fonts) {
+          const fontLines = Object.entries(userSettings.fonts).map(([el, config]) => {
+            const caseStr = config.case && config.case !== 'none' ? `, text-transform: ${config.case}` : '';
+            return `  - ${el.toUpperCase()}: ${config.family}, ${config.weight} weight, ${config.size}px${caseStr}`;
+          }).join('\n');
+          parts.push(`**Typography:**\n${fontLines}`);
+        }
+        
+        if (parts.length > 0) {
+          designSystemContext = `\n\n**USER'S DESIGN SYSTEM (use these values when applicable):**\n${parts.join('\n\n')}`;
+        }
+      }
+
+      const editPrompt = `You are an expert front-end developer. A user has selected a specific element in their ${language || 'React'} component and wants to modify it.
+
+**Selected Element:**
+\`\`\`html
+${element.fullOuterHTML}
+\`\`\`
+
+**User's Edit Request:**
+${prompt}
+${designSystemContext}
+
+**Full Component Code:**
+\`\`\`
+${fullCode}
+\`\`\`
+
+**Your Task:**
+Modify the component code to apply the user's requested changes to the selected element. Return ONLY the complete updated component code with the changes applied. No markdown fences, no explanations, just the raw code.
+
+Important:
+- Preserve all other elements and functionality
+- Only modify what the user requested
+- Maintain the same code structure and style
+- If the edit involves CSS changes, apply them appropriately (inline styles, className, etc.)
+- When applying colors or typography, prefer values from the user's design system if available
+`;
+
+      const res = await fetch('http://localhost:11434/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: OLLAMA_BUILD_MODEL,
+          prompt: editPrompt,
+          stream: false,
+          options: { temperature: 0.3 }
+        })
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Ollama edit error ${res.status}: ${text}`);
+      }
+
+      const data = await res.json();
+      const raw = data?.response?.trim() || '';
+      const updatedCode = stripCodeFences(raw);
+
+      return { 
+        success: true, 
+        updatedCode
       };
     } catch (error) {
       return { success: false, error: error.message };
