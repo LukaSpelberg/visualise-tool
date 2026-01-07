@@ -3,6 +3,7 @@ import buildIcon from '../assets/icons/build.svg';
 import animateIcon from '../assets/icons/animate.svg';
 import componentsIcon from '../assets/icons/components.svg';
 import settingsIcon from '../assets/icons/settings.svg';
+import BuildChat from './BuildChat.jsx';
 
 const AIChatPlaceholder = ({
   activeTab: controlledActiveTab,
@@ -14,7 +15,9 @@ const AIChatPlaceholder = ({
   hasImage,
   analysisReady,
   onBuild,
-  buildState = {}
+  buildState = {},
+  folderPath,
+  fileBridge
 }) => {
   const textareaRef = useRef(null);
   const [value, setValue] = useState('');
@@ -117,46 +120,15 @@ const AIChatPlaceholder = ({
             )}
           </div>
         </div>
-      ) : activeTab !== 'components' && activeTab !== 'settings' && (
+      ) : activeTab === 'build' ? (
+        <BuildChat folderPath={folderPath} fileBridge={fileBridge} />
+      ) : activeTab === 'animate' ? (
         <>
           <div className="chat-body">
-            <p>Chat responses and actions will show here.</p>
-          </div>
-
-          {/* Rich Text Wrapper: border/background/rounded on this parent */}
-          <div className="chat-wrapper">
-            <textarea
-              ref={textareaRef}
-              className="chat-input-textarea"
-              placeholder="Type anything to start building..."
-              value={value}
-              onChange={e => setValue(e.target.value)}
-            />
-
-            <div className="chat-footer">
-              <div className="chat-footer-left">
-                <select
-                  className="chat-mode"
-                  value={chatMode}
-                  onChange={e => setChatMode(e.target.value)}
-                  aria-label="Chat mode"
-                >
-                    <option>Agent</option>
-                    <option>Ask</option>
-                </select>
-              </div>
-
-              <div className="chat-footer-right">
-                <button type="button" className="chat-send" title="Send">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M3 11L21 3L14 21L11 14L3 11Z" fill="currentColor" />
-                  </svg>
-                </button>
-              </div>
-            </div>
+            <p>Animation features coming soon...</p>
           </div>
         </>
-      )}
+      ) : null}
     </section>
   );
 };

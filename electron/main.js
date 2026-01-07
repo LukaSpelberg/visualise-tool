@@ -823,6 +823,474 @@ Important:
     }
   });
 
+  // ============================================
+  // BUILD FEATURE - Design to Code
+  // ============================================
+
+  // Helper: Scan project for existing components
+  const scanProjectComponents = async (folderPath) => {
+    const components = [];
+    const componentDir = path.join(folderPath, 'componentAI');
+    
+    console.log('[Build] Scanning for components in:', componentDir);
+    
+    try {
+      const files = await fs.readdir(componentDir);
+      console.log('[Build] Found files in componentAI:', files);
+      
+      for (const file of files) {
+        const filePath = path.join(componentDir, file);
+        const stat = await fs.stat(filePath);
+        if (stat.isFile() && /\.(jsx?|tsx?|vue|svelte|html?)$/i.test(file)) {
+          console.log('[Build] Loading component:', file);
+          try {
+            const content = await fs.readFile(filePath, 'utf-8');
+            // Extract a brief summary (first 100 lines or component definition)
+            const lines = content.split('\n').slice(0, 100);
+            components.push({
+              name: file.replace(/\.[^.]+$/, ''),
+              fileName: file,
+              path: filePath,
+              code: content,
+              summary: lines.join('\n')
+            });
+          } catch (e) {
+            console.log('[Build] Error reading file:', file, e.message);
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[Build] componentAI folder not found or error:', e.message);
+    }
+    
+    console.log('[Build] Total components found:', components.length);
+    return components;
+  };
+
+  // Helper: Load style guide
+  const loadStyleGuide = async (folderPath) => {
+    try {
+      const settingsPath = path.join(folderPath, '.visualise-settings.json');
+      const content = await fs.readFile(settingsPath, 'utf-8');
+      const settings = JSON.parse(content);
+      if (settings.enabled === false) return null;
+      return settings;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // Helper: Detect project structure
+  const detectProjectStructure = async (folderPath) => {
+    const structure = {
+      type: 'unknown',
+      hasPackageJson: false,
+      hasSrcFolder: false,
+      framework: null,
+      suggestedOutputDir: folderPath
+    };
+
+    try {
+      // Check for package.json
+      const pkgPath = path.join(folderPath, 'package.json');
+      try {
+        const pkgContent = await fs.readFile(pkgPath, 'utf-8');
+        const pkg = JSON.parse(pkgContent);
+        structure.hasPackageJson = true;
+        
+        // Detect framework
+        const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+        if (deps.next) {
+          structure.framework = 'next';
+          structure.type = 'nextjs';
+        } else if (deps.react) {
+          structure.framework = 'react';
+          structure.type = 'react';
+        } else if (deps.vue) {
+          structure.framework = 'vue';
+          structure.type = 'vue';
+        } else if (deps.svelte) {
+          structure.framework = 'svelte';
+          structure.type = 'svelte';
+        }
+      } catch (e) {
+        // No package.json - likely plain HTML
+        structure.type = 'html';
+      }
+
+      // Check for src folder
+      try {
+        await fs.stat(path.join(folderPath, 'src'));
+        structure.hasSrcFolder = true;
+        if (structure.framework === 'next') {
+          // Next.js pages could be in pages/ or app/
+          try {
+            await fs.stat(path.join(folderPath, 'app'));
+            structure.suggestedOutputDir = path.join(folderPath, 'app');
+          } catch {
+            try {
+              await fs.stat(path.join(folderPath, 'pages'));
+              structure.suggestedOutputDir = path.join(folderPath, 'pages');
+            } catch {
+              structure.suggestedOutputDir = path.join(folderPath, 'src');
+            }
+          }
+        } else {
+          structure.suggestedOutputDir = path.join(folderPath, 'src');
+        }
+      } catch (e) {
+        // No src folder
+      }
+    } catch (e) {
+      // Error detecting structure
+    }
+
+    return structure;
+  };
+
+  // Format style guide for prompt
+  const formatStyleGuideForPrompt = (styleGuide) => {
+    if (!styleGuide) return '';
+    
+    const parts = [];
+    
+    if (styleGuide.colors && Array.isArray(styleGuide.colors)) {
+      const colorLines = styleGuide.colors.map(c => `  - ${c.name}: ${c.value}`).join('\n');
+      parts.push(`**Colors:**\n${colorLines}`);
+    }
+    
+    if (styleGuide.fonts) {
+      const fontLines = Object.entries(styleGuide.fonts).map(([el, config]) => {
+        const caseStr = config.case && config.case !== 'none' ? `, text-transform: ${config.case}` : '';
+        return `  - ${el.toUpperCase()}: ${config.family}, ${config.weight} weight, ${config.size}px${caseStr}`;
+      }).join('\n');
+      parts.push(`**Typography:**\n${fontLines}`);
+    }
+    
+    if (styleGuide.codeLanguage) {
+      parts.push(`**Preferred Framework:** ${styleGuide.codeLanguage}`);
+    }
+    
+    return parts.length > 0 ? parts.join('\n\n') : '';
+  };
+
+  // Format components for prompt
+  const formatComponentsForPrompt = (components) => {
+    if (!components || components.length === 0) return 'No existing components found.';
+    
+    return components.map(c => {
+      // Extract props from component code (basic extraction)
+      const propsMatch = c.code.match(/(?:interface\s+\w+Props|type\s+\w+Props|props:\s*{[^}]+}|const\s+\w+\s*=\s*\({[^}]+}\))/);
+      const propsHint = propsMatch ? propsMatch[0].slice(0, 200) : 'Props not detected';
+      
+      return `**${c.name}** (${c.fileName})
+Props: ${propsHint}
+\`\`\`
+${c.code.slice(0, 500)}${c.code.length > 500 ? '\n// ... (truncated)' : ''}
+\`\`\``;
+    }).join('\n\n');
+  };
+
+  // Analyze build design with Gemini
+  ipcMain.handle('analyze-build-design', async (_event, { imageBase64, mimeType, folderPath, userMessage }) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return { success: false, error: 'Missing GEMINI_API_KEY in environment.' };
+      }
+
+      if (!folderPath) {
+        return { success: false, error: 'No project folder open.' };
+      }
+
+      // Gather context
+      const [components, styleGuide, projectStructure] = await Promise.all([
+        scanProjectComponents(folderPath),
+        loadStyleGuide(folderPath),
+        detectProjectStructure(folderPath)
+      ]);
+
+      const styleGuideText = formatStyleGuideForPrompt(styleGuide);
+      const componentsText = formatComponentsForPrompt(components);
+
+      const systemPrompt = `You are an expert UI developer assistant. You help users build web pages and applications from design images.
+
+Your task is to analyze the provided design image and create a detailed build plan.
+
+**Available Components in this project:**
+${componentsText}
+
+**Project Style Guide:**
+${styleGuideText || 'No style guide configured.'}
+
+**Project Structure:**
+- Type: ${projectStructure.type}
+- Framework: ${projectStructure.framework || 'None detected'}
+- Has src folder: ${projectStructure.hasSrcFolder}
+
+**Instructions:**
+1. Analyze the design image carefully
+2. Identify which existing components can be reused
+3. Identify what new components need to be created
+4. Create a detailed build plan
+
+You MUST respond in TWO parts separated by "---DETAILED_PROMPT---":
+
+PART 1 (User-facing summary):
+- Describe what you see in the design
+- List which existing components you'll reuse and how
+- List what new files you'll create
+- Explain your approach briefly
+
+PART 2 (Detailed build prompt for code generation):
+- Exact file structure with full paths
+- For each file: complete specifications including:
+  - Imports needed
+  - Component structure
+  - HTML/JSX elements with exact hierarchy
+  - CSS specifications (colors, spacing, fonts from style guide)
+  - Props to pass to reused components
+  - Responsive breakpoints if applicable
+- Be extremely detailed - the code generator needs exact specifications`;
+
+      const userPrompt = userMessage 
+        ? `Here's the design I want to build. ${userMessage}`
+        : 'Analyze this design and create a detailed build plan.';
+
+      const urlToCall = `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+      const res = await fetch(urlToCall, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: [{
+            parts: [
+              { inline_data: { mime_type: mimeType || 'image/png', data: imageBase64 } },
+              { text: userPrompt }
+            ]
+          }]
+        })
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        return { success: false, error: `Gemini error ${res.status}: ${text}` };
+      }
+
+      const data = await res.json();
+      const fullResponse = (data?.candidates || [])
+        .flatMap(c => c?.content?.parts || [])
+        .map(p => p.text || '')
+        .join('\n')
+        .trim();
+
+      // Split response into summary and detailed prompt
+      const parts = fullResponse.split('---DETAILED_PROMPT---');
+      const summary = parts[0]?.trim() || fullResponse;
+      const detailedPrompt = parts[1]?.trim() || fullResponse;
+
+      return {
+        success: true,
+        summary,
+        detailedPrompt,
+        components: components.map(c => ({ name: c.name, fileName: c.fileName })),
+        styleGuide,
+        projectStructure,
+        files: [] // Will be determined during build
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Refine build plan based on user feedback
+  ipcMain.handle('refine-build-plan', async (_event, { currentPlan, userFeedback, folderPath }) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return { success: false, error: 'Missing GEMINI_API_KEY in environment.' };
+      }
+
+      const styleGuideText = formatStyleGuideForPrompt(currentPlan.styleGuide);
+
+      const prompt = `You previously created this build plan:
+
+**Summary:**
+${currentPlan.summary}
+
+**Detailed Prompt:**
+${currentPlan.detailedPrompt}
+
+The user has this feedback: "${userFeedback}"
+
+Please update the build plan based on this feedback. Respond in the same two-part format:
+PART 1: Updated user-facing summary
+---DETAILED_PROMPT---
+PART 2: Updated detailed build prompt
+
+Style Guide to use:
+${styleGuideText || 'No style guide configured.'}`;
+
+      const urlToCall = `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+      const res = await fetch(urlToCall, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        return { success: false, error: `Gemini error ${res.status}: ${text}` };
+      }
+
+      const data = await res.json();
+      const fullResponse = (data?.candidates || [])
+        .flatMap(c => c?.content?.parts || [])
+        .map(p => p.text || '')
+        .join('\n')
+        .trim();
+
+      const parts = fullResponse.split('---DETAILED_PROMPT---');
+      const summary = parts[0]?.trim() || fullResponse;
+      const detailedPrompt = parts[1]?.trim() || fullResponse;
+
+      return {
+        success: true,
+        summary,
+        detailedPrompt,
+        components: currentPlan.components,
+        styleGuide: currentPlan.styleGuide,
+        files: []
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Execute the build with Ollama
+  ipcMain.handle('execute-build', async (_event, { buildPlan, folderPath }) => {
+    try {
+      if (!buildPlan?.detailedPrompt) {
+        return { success: false, error: 'No build plan provided.' };
+      }
+
+      const projectStructure = await detectProjectStructure(folderPath);
+      const styleGuideText = formatStyleGuideForPrompt(buildPlan.styleGuide);
+      
+      // Load existing component code for context
+      const components = await scanProjectComponents(folderPath);
+      const componentsContext = components.length > 0 
+        ? `\n\n**Existing Components (import and reuse these):**\n${components.map(c => `${c.fileName}:\n\`\`\`\n${c.code}\n\`\`\``).join('\n\n')}`
+        : '';
+
+      const buildPrompt = `You are an expert front-end developer. Build the following based on the detailed specifications.
+
+**Project Info:**
+- Type: ${projectStructure.type}
+- Framework: ${projectStructure.framework || 'Plain HTML/CSS/JS'}
+- Output directory: ${projectStructure.suggestedOutputDir}
+
+**Style Guide:**
+${styleGuideText || 'Use sensible defaults.'}
+${componentsContext}
+
+**DETAILED BUILD SPECIFICATIONS:**
+${buildPlan.detailedPrompt}
+
+**CRITICAL INSTRUCTIONS:**
+1. Generate COMPLETE, WORKING code for each file
+2. Use the EXACT colors, fonts, and spacing from the style guide
+3. Import and reuse existing components where specified
+4. Follow the framework conventions (${projectStructure.framework || 'plain HTML'})
+5. Include ALL necessary imports
+
+**OUTPUT FORMAT:**
+For each file, output in this exact format:
+===FILE: path/to/file.ext===
+[complete file content]
+===END FILE===
+
+Generate all files now:`;
+
+      const res = await fetch('http://localhost:11434/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: OLLAMA_BUILD_MODEL,
+          prompt: buildPrompt,
+          stream: false,
+          options: { 
+            temperature: 0.3,
+            num_predict: 8000
+          }
+        })
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        return { success: false, error: `Ollama error ${res.status}: ${text}` };
+      }
+
+      const data = await res.json();
+      const response = data?.response || '';
+
+      // Parse the response to extract files
+      const fileRegex = /===FILE:\s*(.+?)===\n([\s\S]*?)===END FILE===/g;
+      const createdFiles = [];
+      let match;
+
+      while ((match = fileRegex.exec(response)) !== null) {
+        const relativePath = match[1].trim();
+        let content = match[2].trim();
+        
+        // Strip any code fences that might have been included
+        content = stripCodeFences(content);
+        
+        // Determine full path
+        let fullPath;
+        if (path.isAbsolute(relativePath)) {
+          fullPath = relativePath;
+        } else if (relativePath.startsWith('componentAI/')) {
+          fullPath = path.join(folderPath, relativePath);
+        } else {
+          fullPath = path.join(projectStructure.suggestedOutputDir, relativePath);
+        }
+
+        // Ensure directory exists
+        await fs.mkdir(path.dirname(fullPath), { recursive: true });
+        
+        // Write the file
+        await fs.writeFile(fullPath, content, 'utf-8');
+        
+        createdFiles.push({
+          path: path.relative(folderPath, fullPath),
+          fullPath
+        });
+      }
+
+      if (createdFiles.length === 0) {
+        // Fallback: if no files parsed, save the whole response as a single file
+        const fallbackPath = path.join(folderPath, 'build-output.txt');
+        await fs.writeFile(fallbackPath, response, 'utf-8');
+        return { 
+          success: false, 
+          error: 'Could not parse generated files. Raw output saved to build-output.txt' 
+        };
+      }
+
+      return {
+        success: true,
+        files: createdFiles
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('terminal-create', (event, { cwd, cols = 80, rows = 24 } = {}) => {
     try {
       const { shell, args } = getShellConfig();

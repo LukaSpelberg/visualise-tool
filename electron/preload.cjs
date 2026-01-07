@@ -34,7 +34,11 @@ const api = {
   analyzeImageWithOllama: payload => ipcRenderer.invoke('ollama-analyze-image', payload),
   buildComponent: payload => ipcRenderer.invoke('build-component', payload),
   selectComponentVariation: payload => ipcRenderer.invoke('select-component-variation', payload),
-  editComponentElement: payload => ipcRenderer.invoke('edit-component-element', payload)
+  editComponentElement: payload => ipcRenderer.invoke('edit-component-element', payload),
+  // Build feature
+  analyzeBuildDesign: payload => ipcRenderer.invoke('analyze-build-design', payload),
+  refineBuildPlan: payload => ipcRenderer.invoke('refine-build-plan', payload),
+  executeBuild: payload => ipcRenderer.invoke('execute-build', payload)
 };
 
 contextBridge.exposeInMainWorld('editorAPI', api);

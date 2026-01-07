@@ -610,6 +610,8 @@ const App = () => {
           analysisReady={analysisReady}
           onBuild={handleBuildComponent}
           buildState={componentBuild}
+          folderPath={folderPath}
+          fileBridge={fileBridge}
         />
         {viewMode === 'code' ? (
           aiActiveTab === 'components' ? (
