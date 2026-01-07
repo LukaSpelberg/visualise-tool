@@ -464,11 +464,11 @@ const registerIpcHandlers = () => {
       // Ensure the directory exists
       const dir = path.dirname(filePath);
       await fs.mkdir(dir, { recursive: true });
-      
+
       // Extract base64 data from data URL
       const base64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
       const buffer = Buffer.from(base64Data, 'base64');
-      
+
       await fs.writeFile(filePath, buffer);
       return { success: true, filePath };
     } catch (error) {
@@ -481,7 +481,7 @@ const registerIpcHandlers = () => {
       // Ensure the target directory exists
       const dir = path.dirname(targetPath);
       await fs.mkdir(dir, { recursive: true });
-      
+
       await fs.copyFile(sourcePath, targetPath);
       return { success: true, filePath: targetPath };
     } catch (error) {
@@ -589,13 +589,13 @@ const registerIpcHandlers = () => {
       let designSystemContext = '';
       if (userSettings) {
         const parts = [];
-        
+
         // Colors
         if (userSettings.colors && Array.isArray(userSettings.colors)) {
           const colorLines = userSettings.colors.map(c => `  - ${c.name}: ${c.value}`).join('\n');
           parts.push(`**Color Palette:**\n${colorLines}`);
         }
-        
+
         // Typography
         if (userSettings.fonts) {
           const fontLines = Object.entries(userSettings.fonts).map(([el, config]) => {
@@ -604,12 +604,12 @@ const registerIpcHandlers = () => {
           }).join('\n');
           parts.push(`**Typography:**\n${fontLines}`);
         }
-        
+
         // Code Language preference
         if (userSettings.codeLanguage) {
           parts.push(`**Preferred Framework:** ${userSettings.codeLanguage}`);
         }
-        
+
         if (parts.length > 0) {
           designSystemContext = `\n\n**USER'S DESIGN SYSTEM (use these values):**\n${parts.join('\n\n')}`;
         }
@@ -702,8 +702,8 @@ Requirements:
         return { success: false, error: 'All variations failed to build.' };
       }
 
-      return { 
-        success: true, 
+      return {
+        success: true,
         variations: results,
         targetDir,
         baseFileName: slugify(trimmedName)
@@ -728,8 +728,8 @@ Requirements:
 
       // Delete all temporary variation files (they were never written, so nothing to delete)
       // Just return success
-      return { 
-        success: true, 
+      return {
+        success: true,
         filePath: finalFilePath,
         code: selected.code
       };
@@ -748,12 +748,12 @@ Requirements:
       let designSystemContext = '';
       if (userSettings) {
         const parts = [];
-        
+
         if (userSettings.colors && Array.isArray(userSettings.colors)) {
           const colorLines = userSettings.colors.map(c => `  - ${c.name}: ${c.value}`).join('\n');
           parts.push(`**Color Palette:**\n${colorLines}`);
         }
-        
+
         if (userSettings.fonts) {
           const fontLines = Object.entries(userSettings.fonts).map(([el, config]) => {
             const caseStr = config.case && config.case !== 'none' ? `, text-transform: ${config.case}` : '';
@@ -761,7 +761,7 @@ Requirements:
           }).join('\n');
           parts.push(`**Typography:**\n${fontLines}`);
         }
-        
+
         if (parts.length > 0) {
           designSystemContext = `\n\n**USER'S DESIGN SYSTEM (use these values when applicable):**\n${parts.join('\n\n')}`;
         }
@@ -814,8 +814,8 @@ Important:
       const raw = data?.response?.trim() || '';
       const updatedCode = stripCodeFences(raw);
 
-      return { 
-        success: true, 
+      return {
+        success: true,
         updatedCode
       };
     } catch (error) {
@@ -827,17 +827,37 @@ Important:
   // BUILD FEATURE - Design to Code
   // ============================================
 
+  // Helper for exponential backoff
+  const fetchWithRetry = async (url, options, retries = 3, backoff = 1000) => {
+    try {
+      const res = await fetch(url, options);
+      if (res.status === 503 && retries > 0) {
+        console.warn(`[Gemini] 503 Service Unavailable. Retrying in ${backoff}ms... (${retries} retries left)`);
+        await delay(backoff);
+        return fetchWithRetry(url, options, retries - 1, backoff * 2);
+      }
+      return res;
+    } catch (error) {
+      if (retries > 0) {
+        console.warn(`[Gemini] Fetch error: ${error.message}. Retrying in ${backoff}ms... (${retries} retries left)`);
+        await delay(backoff);
+        return fetchWithRetry(url, options, retries - 1, backoff * 2);
+      }
+      throw error;
+    }
+  };
+
   // Helper: Scan project for existing components
   const scanProjectComponents = async (folderPath) => {
     const components = [];
     const componentDir = path.join(folderPath, 'componentAI');
-    
+
     console.log('[Build] Scanning for components in:', componentDir);
-    
+
     try {
       const files = await fs.readdir(componentDir);
       console.log('[Build] Found files in componentAI:', files);
-      
+
       for (const file of files) {
         const filePath = path.join(componentDir, file);
         const stat = await fs.stat(filePath);
@@ -862,7 +882,7 @@ Important:
     } catch (e) {
       console.log('[Build] componentAI folder not found or error:', e.message);
     }
-    
+
     console.log('[Build] Total components found:', components.length);
     return components;
   };
@@ -886,7 +906,7 @@ Important:
       type: 'unknown',
       hasPackageJson: false,
       hasSrcFolder: false,
-      framework: null,
+      framework: null, // 'react', 'vue', 'svelte', 'next', 'html'
       suggestedOutputDir: folderPath
     };
 
@@ -897,7 +917,7 @@ Important:
         const pkgContent = await fs.readFile(pkgPath, 'utf-8');
         const pkg = JSON.parse(pkgContent);
         structure.hasPackageJson = true;
-        
+
         // Detect framework
         const deps = { ...pkg.dependencies, ...pkg.devDependencies };
         if (deps.next) {
@@ -916,26 +936,27 @@ Important:
       } catch (e) {
         // No package.json - likely plain HTML
         structure.type = 'html';
+        structure.framework = 'html'; // Explicitly set framework to html
       }
 
       // Check for src folder
       try {
         await fs.stat(path.join(folderPath, 'src'));
         structure.hasSrcFolder = true;
+
         if (structure.framework === 'next') {
-          // Next.js pages could be in pages/ or app/
+          // Next.js logic...
           try {
             await fs.stat(path.join(folderPath, 'app'));
             structure.suggestedOutputDir = path.join(folderPath, 'app');
           } catch {
-            try {
-              await fs.stat(path.join(folderPath, 'pages'));
-              structure.suggestedOutputDir = path.join(folderPath, 'pages');
-            } catch {
-              structure.suggestedOutputDir = path.join(folderPath, 'src');
-            }
+            structure.suggestedOutputDir = path.join(folderPath, 'pages') || path.join(folderPath, 'src');
           }
+        } else if (structure.framework === 'html' || structure.type === 'unknown') {
+          // FORCE ROOT for HTML, even if src exists (it might be for assets)
+          structure.suggestedOutputDir = folderPath;
         } else {
+          // For React/Vue etc, default to src
           structure.suggestedOutputDir = path.join(folderPath, 'src');
         }
       } catch (e) {
@@ -948,17 +969,30 @@ Important:
     return structure;
   };
 
+  // Helper: Scan Image Bank
+  const scanImageBank = async (folderPath) => {
+    const imagesDir = path.join(folderPath, 'src', 'assets', 'images');
+    try {
+      const files = await fs.readdir(imagesDir);
+      // Filter for images
+      const images = files.filter(f => /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(f));
+      return images.map(img => `src/assets/images/${img}`);
+    } catch (e) {
+      return [];
+    }
+  };
+
   // Format style guide for prompt
   const formatStyleGuideForPrompt = (styleGuide) => {
     if (!styleGuide) return '';
-    
+
     const parts = [];
-    
+
     if (styleGuide.colors && Array.isArray(styleGuide.colors)) {
       const colorLines = styleGuide.colors.map(c => `  - ${c.name}: ${c.value}`).join('\n');
       parts.push(`**Colors:**\n${colorLines}`);
     }
-    
+
     if (styleGuide.fonts) {
       const fontLines = Object.entries(styleGuide.fonts).map(([el, config]) => {
         const caseStr = config.case && config.case !== 'none' ? `, text-transform: ${config.case}` : '';
@@ -966,27 +1000,28 @@ Important:
       }).join('\n');
       parts.push(`**Typography:**\n${fontLines}`);
     }
-    
+
     if (styleGuide.codeLanguage) {
       parts.push(`**Preferred Framework:** ${styleGuide.codeLanguage}`);
     }
-    
+
     return parts.length > 0 ? parts.join('\n\n') : '';
   };
 
   // Format components for prompt
   const formatComponentsForPrompt = (components) => {
     if (!components || components.length === 0) return 'No existing components found.';
-    
+
     return components.map(c => {
       // Extract props from component code (basic extraction)
       const propsMatch = c.code.match(/(?:interface\s+\w+Props|type\s+\w+Props|props:\s*{[^}]+}|const\s+\w+\s*=\s*\({[^}]+}\))/);
       const propsHint = propsMatch ? propsMatch[0].slice(0, 200) : 'Props not detected';
-      
+
+      // Increased from 500 to 3000 chars to give better context
       return `**${c.name}** (${c.fileName})
 Props: ${propsHint}
 \`\`\`
-${c.code.slice(0, 500)}${c.code.length > 500 ? '\n// ... (truncated)' : ''}
+${c.code.slice(0, 3000)}${c.code.length > 3000 ? '\n// ... (truncated)' : ''}
 \`\`\``;
     }).join('\n\n');
   };
@@ -1004,14 +1039,18 @@ ${c.code.slice(0, 500)}${c.code.length > 500 ? '\n// ... (truncated)' : ''}
       }
 
       // Gather context
-      const [components, styleGuide, projectStructure] = await Promise.all([
+      const [components, styleGuide, projectStructure, availableImages] = await Promise.all([
         scanProjectComponents(folderPath),
         loadStyleGuide(folderPath),
-        detectProjectStructure(folderPath)
+        detectProjectStructure(folderPath),
+        scanImageBank(folderPath)
       ]);
 
       const styleGuideText = formatStyleGuideForPrompt(styleGuide);
       const componentsText = formatComponentsForPrompt(components);
+      const imagesText = availableImages.length > 0
+        ? availableImages.join('\n')
+        : 'No images found in src/assets/images';
 
       const systemPrompt = `You are an expert UI developer assistant. You help users build web pages and applications from design images.
 
@@ -1019,6 +1058,9 @@ Your task is to analyze the provided design image and create a detailed build pl
 
 **Available Components in this project:**
 ${componentsText}
+
+**Available Images (use these exact paths):**
+${imagesText}
 
 **Project Style Guide:**
 ${styleGuideText || 'No style guide configured.'}
@@ -1030,17 +1072,37 @@ ${styleGuideText || 'No style guide configured.'}
 
 **Instructions:**
 1. Analyze the design image carefully
-2. Identify which existing components can be reused
+2. Identify which existing components can be reused. 
+   - **Reuse Strategy:** Reuse the structure/class names of existing components.
+   - **Adaptation:** You MUST update the content (text, images, links) of reused components to match the design. Do NOT leave placeholders if the design shows real content.
+   - **Props:** If the component accepts props (e.g. \`image\`, \`title\`), pass the correct values from the design.
 3. Identify what new components need to be created
-4. Create a detailed build plan
+4. Select appropriate images from the **Available Images** list for any placeholders.
+5. Create a detailed build plan.
 
-You MUST respond in TWO parts separated by "---DETAILED_PROMPT---":
+**FILE STRUCTURE RULES:**
+- If the Project Type is "html" or "unknown" (Plain HTML/CSS):
+  - Place \`index.html\` in the ROOT directory (do not put it in src/).
+  - Place CSS files in a \`styles/\` folder.
+  - Place JS files in a \`script/\` folder.
+  - Fix all relative paths in imports to match this structure (e.g. \`<link href="styles/main.css">\`).
+- If the Project Type is "react", "vue", etc., follow standard conventions (usually src/ folder).
+
+**CRITICAL OUTPUT RULES:**
+- You MUST return your response in TWO DISTINCT PARTS.
+- The parts MUST be separated by the exact string: "---DETAILED_PROMPT---"
+- Do NOT omit this separator.
+- PART 2 is the most important part; it is used by a code generator.
+
+**OUTPUT FORMAT:**
 
 PART 1 (User-facing summary):
 - Describe what you see in the design
-- List which existing components you'll reuse and how
+- List which existing components you'll reuse and how you will adapt them (e.g. "Will reuse Card component but change image to X")
 - List what new files you'll create
 - Explain your approach briefly
+
+---DETAILED_PROMPT---
 
 PART 2 (Detailed build prompt for code generation):
 - Exact file structure with full paths
@@ -1049,17 +1111,21 @@ PART 2 (Detailed build prompt for code generation):
   - Component structure
   - HTML/JSX elements with exact hierarchy
   - CSS specifications (colors, spacing, fonts from style guide)
-  - Props to pass to reused components
+  - **Props/Content Adaptation:** Explicitly state how to adapt reused components (e.g. "Use 'Card' component code but replace \`src='placeholder.jpg'\` with \`src='src/assets/images/real.jpg'\`").
+  - **New Elements:** For any new buttons, inputs, etc., explicitly specify the font-family, colors, and border-radius from the Style Guide.
+  - Image paths (use exact paths from Available Images)
   - Responsive breakpoints if applicable
-- Be extremely detailed - the code generator needs exact specifications`;
+  - If reusing a component, explicitly state: "Reuse existing component [Name]: [Path]" and provide the code snippet to copy if needed.
+- Be extremely detailed - the code generator needs exact specifications
+- DO NOT use markdown formatting for Part 2, just plain text instructions.`;
 
-      const userPrompt = userMessage 
+      const userPrompt = userMessage
         ? `Here's the design I want to build. ${userMessage}`
         : 'Analyze this design and create a detailed build plan.';
 
       const urlToCall = `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-      const res = await fetch(urlToCall, {
+      const res = await fetchWithRetry(urlToCall, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1087,8 +1153,27 @@ PART 2 (Detailed build prompt for code generation):
 
       // Split response into summary and detailed prompt
       const parts = fullResponse.split('---DETAILED_PROMPT---');
-      const summary = parts[0]?.trim() || fullResponse;
-      const detailedPrompt = parts[1]?.trim() || fullResponse;
+
+      if (parts.length < 2) {
+        // Fallback or error if separator is missing
+        // If the model ignored instructions, we might have just a summary or just a plan.
+        // We'll log it and try to return what we have, but warn.
+        console.warn('[Gemini] Missing separator ---DETAILED_PROMPT---');
+        return {
+          success: false,
+          error: 'The AI analysis was incomplete (missing build plan). Please try again.'
+        };
+      }
+
+      const summary = parts[0]?.trim() || 'Analysis complete.';
+      const detailedPrompt = parts[1]?.trim() || '';
+
+      if (!detailedPrompt) {
+        return {
+          success: false,
+          error: 'The AI generated an empty build plan. Please try again.'
+        };
+      }
 
       return {
         success: true,
@@ -1134,7 +1219,7 @@ ${styleGuideText || 'No style guide configured.'}`;
 
       const urlToCall = `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-      const res = await fetch(urlToCall, {
+      const res = await fetchWithRetry(urlToCall, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1180,10 +1265,10 @@ ${styleGuideText || 'No style guide configured.'}`;
 
       const projectStructure = await detectProjectStructure(folderPath);
       const styleGuideText = formatStyleGuideForPrompt(buildPlan.styleGuide);
-      
+
       // Load existing component code for context
       const components = await scanProjectComponents(folderPath);
-      const componentsContext = components.length > 0 
+      const componentsContext = components.length > 0
         ? `\n\n**Existing Components (import and reuse these):**\n${components.map(c => `${c.fileName}:\n\`\`\`\n${c.code}\n\`\`\``).join('\n\n')}`
         : '';
 
@@ -1202,11 +1287,18 @@ ${componentsContext}
 ${buildPlan.detailedPrompt}
 
 **CRITICAL INSTRUCTIONS:**
-1. Generate COMPLETE, WORKING code for each file
-2. Use the EXACT colors, fonts, and spacing from the style guide
-3. Import and reuse existing components where specified
+1. **Reuse & Adapt:** When using an existing component:
+   - Use the provided code structure.
+   - **IMPORTANT:** You MUST update the *content* (text, images, links) to match the specifications. Do NOT keep placeholders if the spec asks for real data/images.
+   - For React/Vue: Pass props as specified.
+   - For HTML: Edit the HTML content directly while keeping classes/structure.
+2. **Style New Elements:** For any element NOT part of an existing component (buttons, inputs, cards):
+   - You MUST apply the fonts and colors from the **Style Guide**.
+   - Do NOT use browser default styles.
+3. **Generate COMPLETE Code:**
+   - Write the FULL file content.
+   - Include ALL imports.
 4. Follow the framework conventions (${projectStructure.framework || 'plain HTML'})
-5. Include ALL necessary imports
 
 **OUTPUT FORMAT:**
 For each file, output in this exact format:
@@ -1223,7 +1315,7 @@ Generate all files now:`;
           model: OLLAMA_BUILD_MODEL,
           prompt: buildPrompt,
           stream: false,
-          options: { 
+          options: {
             temperature: 0.3,
             num_predict: 8000
           }
@@ -1239,46 +1331,125 @@ Generate all files now:`;
       const response = data?.response || '';
 
       // Parse the response to extract files
-      const fileRegex = /===FILE:\s*(.+?)===\n([\s\S]*?)===END FILE===/g;
+      // We support multiple formats because LLMs are unpredictable
       const createdFiles = [];
-      let match;
+      const lines = response.split('\n');
+      let currentFile = null;
+      let currentContent = [];
 
-      while ((match = fileRegex.exec(response)) !== null) {
-        const relativePath = match[1].trim();
-        let content = match[2].trim();
-        
-        // Strip any code fences that might have been included
-        content = stripCodeFences(content);
-        
-        // Determine full path
+      // Regex patterns for file headers
+      // 1. ===FILE: path/to/file=== (Standard)
+      // 2. ### FILE: path/to/file (Common markdown)
+      // 3. ### File 1: path/to/file (Numbered markdown)
+      // 4. **File:** path/to/file (Bold label)
+      // 5. File: path/to/file (Simple label)
+      // Regex patterns for file headers
+      // We accept various formats to be robust against model variations
+      const headerPatterns = [
+        /^===FILE:\s*(.+?)===/,
+        /^###\s*FILE.*:\s*(.+)/i,  // Relaxed: matches "### File 1:", "### FILE:", etc.
+        /^\*\*\s*File.*:\s*\*\*\s*(.+)/i,
+        /^File.*:\s*(.+)/i
+      ];
+
+      // Helper to check if a line is a file header
+      const matchHeader = (line) => {
+        for (const pattern of headerPatterns) {
+          const match = line.match(pattern);
+          if (match && match[1]) {
+            // Strip backticks, whitespace, and any trailing non-path chars
+            return match[1].trim().replace(/^`+|`+$/g, '');
+          }
+        }
+        return null;
+      };
+
+      // Helper to check if a line is a file footer
+      const matchFooter = (line) => {
+        return line.trim() === '===END FILE===' || line.trim() === '```';
+      };
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const filename = matchHeader(line);
+
+        if (filename) {
+          if (currentFile) {
+            await saveParsedFile(currentFile, currentContent.join('\n'), folderPath, projectStructure, createdFiles);
+          }
+          currentFile = filename;
+          currentContent = [];
+
+          // Skip preamble (empty lines, code fences)
+          // We look ahead to skip optional code fences or blank lines so we get clean content
+          let j = i + 1;
+          while (j < lines.length) {
+            const nextLine = lines[j].trim();
+            // If it's empty or starts with backticks (start of partial fence or language specifier)
+            if (nextLine === '' || nextLine.startsWith('```')) {
+              j++;
+            } else {
+              break;
+            }
+          }
+          i = j - 1; // loop increment will make it j
+        } else if (currentFile) {
+          if (matchFooter(line)) {
+            // End of file
+            await saveParsedFile(currentFile, currentContent.join('\n'), folderPath, projectStructure, createdFiles);
+            currentFile = null;
+            currentContent = [];
+          } else {
+            currentContent.push(line);
+          }
+        }
+      }
+
+      // Save any remaining file
+      if (currentFile && currentContent.length > 0) {
+        await saveParsedFile(currentFile, currentContent.join('\n'), folderPath, projectStructure, createdFiles);
+      }
+
+      // Helper to save files
+      async function saveParsedFile(relativePath, content, folderPath, projectStructure, createdFiles) {
+        // Cleaning
+        let cleanContent = stripCodeFences(content);
+
         let fullPath;
         if (path.isAbsolute(relativePath)) {
           fullPath = relativePath;
         } else if (relativePath.startsWith('componentAI/')) {
           fullPath = path.join(folderPath, relativePath);
         } else {
-          fullPath = path.join(projectStructure.suggestedOutputDir, relativePath);
+          // Clean up path if it has leading slashes or .
+          const cleanPath = relativePath.replace(/^[./\\]+/, '');
+          fullPath = path.join(projectStructure.suggestedOutputDir, cleanPath);
+
+          // Special case: if the user's prompt put it in src/ but suggested output is also src/, avoid src/src/
+          if (projectStructure.suggestedOutputDir.endsWith('src') && cleanPath.startsWith('src/')) {
+            fullPath = path.join(folderPath, cleanPath);
+          }
         }
 
-        // Ensure directory exists
-        await fs.mkdir(path.dirname(fullPath), { recursive: true });
-        
-        // Write the file
-        await fs.writeFile(fullPath, content, 'utf-8');
-        
-        createdFiles.push({
-          path: path.relative(folderPath, fullPath),
-          fullPath
-        });
+        try {
+          await fs.mkdir(path.dirname(fullPath), { recursive: true });
+          await fs.writeFile(fullPath, cleanContent, 'utf-8');
+          createdFiles.push({
+            path: path.relative(folderPath, fullPath),
+            fullPath
+          });
+        } catch (e) {
+          console.error('Failed to write file:', fullPath, e);
+        }
       }
 
       if (createdFiles.length === 0) {
         // Fallback: if no files parsed, save the whole response as a single file
         const fallbackPath = path.join(folderPath, 'build-output.txt');
         await fs.writeFile(fallbackPath, response, 'utf-8');
-        return { 
-          success: false, 
-          error: 'Could not parse generated files. Raw output saved to build-output.txt' 
+        return {
+          success: false,
+          error: 'Could not parse generated files. Raw output saved to build-output.txt'
         };
       }
 
