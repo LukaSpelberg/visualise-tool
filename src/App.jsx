@@ -55,14 +55,14 @@ const App = () => {
   const [componentForm, setComponentForm] = useState({ name: '', useCase: '', language: 'React' });
   const [componentAnalysis, setComponentAnalysis] = useState('');
   const [componentHasImage, setComponentHasImage] = useState(false);
-  const [componentBuild, setComponentBuild] = useState({ 
-    status: 'idle', 
-    variations: [], 
+  const [componentBuild, setComponentBuild] = useState({
+    status: 'idle',
+    variations: [],
     targetDir: '',
     baseFileName: '',
     extension: '',
     selectedVariation: null,
-    error: '' 
+    error: ''
   });
   const [componentFiles, setComponentFiles] = useState([]);
   const [isTestMode, setIsTestMode] = useState(false);
@@ -72,14 +72,14 @@ const App = () => {
     setComponentAnalysis('');
     setComponentHasImage(false);
     setIsTestMode(false);
-    setComponentBuild({ 
-      status: 'idle', 
-      variations: [], 
+    setComponentBuild({
+      status: 'idle',
+      variations: [],
       targetDir: '',
       baseFileName: '',
       extension: '',
       selectedVariation: null,
-      error: '' 
+      error: ''
     });
   }, []);
 
@@ -161,27 +161,27 @@ const App = () => {
 
   const handleComponentFormChange = useCallback(updates => {
     setComponentForm(prev => ({ ...prev, ...updates }));
-    setComponentBuild(prev => (prev.status === 'idle' ? prev : { 
-      status: 'idle', 
-      variations: [], 
+    setComponentBuild(prev => (prev.status === 'idle' ? prev : {
+      status: 'idle',
+      variations: [],
       targetDir: '',
       baseFileName: '',
       extension: '',
       selectedVariation: null,
-      error: '' 
+      error: ''
     }));
   }, []);
 
   const handleAnalysisChange = useCallback(value => {
     setComponentAnalysis(value);
-    setComponentBuild(prev => (prev.status === 'idle' ? prev : { 
-      status: 'idle', 
-      variations: [], 
+    setComponentBuild(prev => (prev.status === 'idle' ? prev : {
+      status: 'idle',
+      variations: [],
       targetDir: '',
       baseFileName: '',
       extension: '',
       selectedVariation: null,
-      error: '' 
+      error: ''
     }));
   }, []);
 
@@ -214,8 +214,8 @@ const App = () => {
       setComponentForm({ name: namePart, useCase: 'Existing component', language });
       setComponentAnalysis('');
       setComponentHasImage(false);
-      setComponentBuild({ 
-        status: 'done-selected', 
+      setComponentBuild({
+        status: 'done-selected',
         variations: [],
         targetDir: '',
         baseFileName: '',
@@ -226,7 +226,7 @@ const App = () => {
           filePath,
           success: true
         },
-        error: '' 
+        error: ''
       });
       setAiActiveTab('components');
       setCreatingComponent(true);
@@ -263,7 +263,7 @@ const App = () => {
         window.alert('Please open a folder first.');
         return;
       }
-      
+
       try {
         const result = await fileBridge.startPreviewServer({ folderPath });
         if (result?.success) {
@@ -298,7 +298,7 @@ const App = () => {
       if (res?.filePath) {
         setSavedContent(code);
         // Update the tab's savedContent
-        setOpenTabs(prev => prev.map(tab => 
+        setOpenTabs(prev => prev.map(tab =>
           tab.path === activeFilePath ? { ...tab, savedContent: code, content: code } : tab
         ));
         // eslint-disable-next-line no-console
@@ -356,7 +356,7 @@ const App = () => {
 
       const content = response?.content ?? '';
       const fileName = getNameFromPath(filePath);
-      
+
       // Add new tab
       setOpenTabs(prev => [...prev, {
         path: filePath,
@@ -433,14 +433,14 @@ const App = () => {
       return;
     }
 
-    setComponentBuild({ 
-      status: 'building', 
-      variations: [], 
+    setComponentBuild({
+      status: 'building',
+      variations: [],
       targetDir: '',
       baseFileName: '',
       extension: '',
       selectedVariation: null,
-      error: '' 
+      error: ''
     });
 
     try {
@@ -470,36 +470,36 @@ const App = () => {
       });
 
       if (!res?.success) {
-        setComponentBuild({ 
-          status: 'error', 
-          variations: [], 
+        setComponentBuild({
+          status: 'error',
+          variations: [],
           targetDir: '',
           baseFileName: '',
           extension: '',
           selectedVariation: null,
-          error: res?.error || 'Build failed.' 
+          error: res?.error || 'Build failed.'
         });
         return;
       }
 
-      setComponentBuild({ 
-        status: 'done', 
+      setComponentBuild({
+        status: 'done',
         variations: res.variations || [],
         targetDir: res.targetDir || '',
         baseFileName: res.baseFileName || '',
         extension: res.variations?.[0]?.extension || '',
         selectedVariation: null,
-        error: '' 
+        error: ''
       });
     } catch (err) {
-      setComponentBuild({ 
-        status: 'error', 
-        variations: [], 
+      setComponentBuild({
+        status: 'error',
+        variations: [],
         targetDir: '',
         baseFileName: '',
         extension: '',
         selectedVariation: null,
-        error: err?.message || 'Unexpected build error.' 
+        error: err?.message || 'Unexpected build error.'
       });
     }
   }, [analysisReady, componentAnalysis, componentFieldsComplete, componentForm.language, componentForm.name, componentForm.useCase, folderPath]);
@@ -526,7 +526,7 @@ const App = () => {
 
       // Update state to show the selected variation
       const selectedVariation = componentBuild.variations.find(v => v.id === selectedId);
-      setComponentBuild(prev => ({ 
+      setComponentBuild(prev => ({
         ...prev,
         status: 'done-selected',
         selectedVariation: {
@@ -595,8 +595,10 @@ const App = () => {
       if (componentBuild.selectedVariation?.filePath && fileBridge?.writeFile) {
         await fileBridge.writeFile(componentBuild.selectedVariation.filePath, res.updatedCode);
       }
+      return res;
     } catch (err) {
       window.alert(err?.message || 'Failed to edit element.');
+      return null;
     }
   }, [componentForm.language, componentBuild.selectedVariation?.filePath, fileBridge]);
 
@@ -632,11 +634,11 @@ const App = () => {
   const switchTab = useCallback((filePath) => {
     // Save current tab's content first
     if (activeFilePath) {
-      setOpenTabs(prev => prev.map(tab => 
+      setOpenTabs(prev => prev.map(tab =>
         tab.path === activeFilePath ? { ...tab, content: code } : tab
       ));
     }
-    
+
     const tab = openTabs.find(t => t.path === filePath);
     if (tab) {
       setActiveFilePath(filePath);
@@ -648,7 +650,7 @@ const App = () => {
   // Sync code changes to the current tab
   const handleCodeChange = useCallback((newCode) => {
     setCode(newCode);
-    setOpenTabs(prev => prev.map(tab => 
+    setOpenTabs(prev => prev.map(tab =>
       tab.path === activeFilePath ? { ...tab, content: newCode } : tab
     ));
   }, [activeFilePath]);
@@ -657,7 +659,7 @@ const App = () => {
     filePath => {
       // Save current tab's content before switching
       if (activeFilePath) {
-        setOpenTabs(prev => prev.map(tab => 
+        setOpenTabs(prev => prev.map(tab =>
           tab.path === activeFilePath ? { ...tab, content: code } : tab
         ));
       }
@@ -715,6 +717,15 @@ const App = () => {
                 componentForm={componentForm}
                 buildState={componentBuild}
                 onSelectVariation={handleSelectVariation}
+                onUpdateCode={code => {
+                  setComponentBuild(prev => ({
+                    ...prev,
+                    selectedVariation: {
+                      ...prev.selectedVariation,
+                      code
+                    }
+                  }));
+                }}
                 onEditElement={handleEditElement}
                 isTestMode={isTestMode}
               />

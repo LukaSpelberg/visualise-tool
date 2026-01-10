@@ -4,6 +4,8 @@ import desktopIcon from '../assets/icons/desktop.svg';
 import laptopIcon from '../assets/icons/laptop.svg';
 import mobileIcon from '../assets/icons/mobile.svg';
 import imageIcon from '../assets/icons/image.svg';
+import VersionHistory from './VersionHistory.jsx';
+import { useVersionHistory } from '../hooks/useVersionHistory.js';
 
 const DeviceSelector = ({ value, onChange }) => {
   const devices = [
@@ -40,8 +42,20 @@ const CreateComponentPage = ({
   componentForm = {},
   onSelectVariation,
   isTestMode = false,
-  onEditElement
+  onEditElement,
+  onUpdateCode
 }) => {
+  // Version history hook
+  const {
+    versions,
+    currentIndex,
+    addVersion,
+    goToVersion,
+    currentVersion,
+    reset: resetHistory
+  } = useVersionHistory(null, 'Initial Build');
+
+  // State variables (restored)
   const [device, setDevice] = useState('desktop');
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
@@ -60,26 +74,77 @@ const CreateComponentPage = ({
   const typingChar = useRef(0);
   const [typingText, setTypingText] = useState('');
 
-  const cookingSentences = useMemo(
-    () => [
-      'Letting the algorithm cook…',
-      'Formulating the master plan…',
-      'Preparing something legendary…',
-      'Locked in and processing…',
-      'Making the magic happen…',
-      'In the lab working…',
-      'Manifesting the data…',
-      'Brewing up the results…',
-      'Crafting the experience…',
-      'Doing the heavy lifting…',
-      'Trusting the process…',
-      'Cooking up the logic…',
-      'Dialing in the details…',
-      'Serving up excellence…',
-      'Vibing with the database…'
-    ],
-    []
-  );
+  // Initialize history when a variation is selected
+  const [currentVariationId, setCurrentVariationId] = useState(null);
+
+  useEffect(() => {
+    const varId = buildState?.selectedVariation?.id;
+    // Only reset if we change variation locally OR if we just built/selected a fresh one
+    // But be careful not to reset if we just undid/redid (which also updates selectedVariation)
+    // We can detecting "undo/redo" by comparing *currentVersion* to *newProps*. 
+    // If they match, it's likely our own doing.
+    // If they mismatch, it's a "fresh" selection.
+
+    // Simplification: logic to reset history only when ID changes
+    if (varId && varId !== currentVariationId) {
+      setCurrentVariationId(varId);
+      resetHistory(buildState.selectedVariation.code, 'Initial Build');
+    }
+  }, [buildState?.selectedVariation?.id, buildState?.selectedVariation?.code, resetHistory, currentVariationId]);
+
+  // Handle restoring a version
+  const handleRestoreVersion = (index) => {
+    goToVersion(index);
+    const version = versions[index];
+    if (version && onUpdateCode) {
+      onUpdateCode(version.data);
+    }
+  };
+
+  // Pending prompt to attach to the next code change
+  const pendingPromptRef = useRef(null);
+
+  const handleSubmitEdit = async () => {
+    if (!editPrompt.trim() || !selectedElement || !onEditElement) return;
+
+    setIsEditing(true);
+    try {
+      pendingPromptRef.current = editPrompt;
+      const res = await onEditElement({
+        element: selectedElement,
+        prompt: editPrompt,
+        fullCode: codeForDisplay
+      });
+
+      // If onEditElement returns the new code, use it to update history immediately
+      if (res && res.updatedCode) {
+        addVersion(res.updatedCode, editPrompt);
+        pendingPromptRef.current = null;
+      }
+
+      setEditPrompt('');
+      setSelectedElement(null);
+    } catch (err) {
+      console.error('Edit failed:', err);
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+  // Also watch for code changes if we couldn't capture it in handleSubmitEdit
+  useEffect(() => {
+    // If code changed and it matches what we expect from a pending prompt...
+    // Actually, handling it in handleSubmitEdit is safer if we update App.jsx
+  }, []);
+
+
+  const handleToggleEditMode = () => {
+    setEditMode(!editMode);
+    setSelectedElement(null);
+    setEditPrompt('');
+  };
+
+
 
   useEffect(() => {
     if (buildState?.status === 'done-selected') {
@@ -97,7 +162,7 @@ const CreateComponentPage = ({
     }
 
     const iframe = previewIframeRef.current;
-    
+
     const setupInspector = () => {
       try {
         const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
@@ -136,7 +201,7 @@ const CreateComponentPage = ({
         const handleClick = (e) => {
           e.preventDefault();
           e.stopPropagation();
-          
+
           // Remove previous selection
           const prevSelected = iframeDoc.querySelector('.inspector-selected');
           if (prevSelected) {
@@ -172,7 +237,7 @@ const CreateComponentPage = ({
           iframeDoc.body.removeEventListener('mouseover', handleMouseOver);
           iframeDoc.body.removeEventListener('mouseout', handleMouseOut);
           iframeDoc.body.removeEventListener('click', handleClick);
-          
+
           // Clean up styles
           const selected = iframeDoc.querySelector('.inspector-selected');
           if (selected) {
@@ -194,30 +259,26 @@ const CreateComponentPage = ({
     };
   }, [editMode, buildView]);
 
-  const handleToggleEditMode = () => {
-    setEditMode(!editMode);
-    setSelectedElement(null);
-    setEditPrompt('');
-  };
-
-  const handleSubmitEdit = async () => {
-    if (!editPrompt.trim() || !selectedElement || !onEditElement) return;
-
-    setIsEditing(true);
-    try {
-      await onEditElement({
-        element: selectedElement,
-        prompt: editPrompt,
-        fullCode: codeForDisplay
-      });
-      setEditPrompt('');
-      setSelectedElement(null);
-    } catch (err) {
-      console.error('Edit failed:', err);
-    } finally {
-      setIsEditing(false);
-    }
-  };
+  const cookingSentences = useMemo(
+    () => [
+      'Letting the algorithm cook…',
+      'Formulating the master plan…',
+      'Preparing something legendary…',
+      'Locked in and processing…',
+      'Making the magic happen…',
+      'In the lab working…',
+      'Manifesting the data…',
+      'Brewing up the results…',
+      'Crafting the experience…',
+      'Doing the heavy lifting…',
+      'Trusting the process…',
+      'Cooking up the logic…',
+      'Dialing in the details…',
+      'Serving up excellence…',
+      'Vibing with the database…'
+    ],
+    []
+  );
 
   useEffect(() => {
     const sentences = cookingSentences;
@@ -434,6 +495,10 @@ const CreateComponentPage = ({
         </div>
 
         <div className="create-header-right">
+          <VersionHistory
+            history={{ versions, currentIndex }}
+            onRestore={handleRestoreVersion}
+          />
           {previewUrl ? (
             <div className="header-action-row">
               <button type="button" className="header-action-button" onClick={triggerFileDialog}>Change image</button>
@@ -461,9 +526,9 @@ const CreateComponentPage = ({
               <div className="variations-grid">
                 {buildState.variations?.map((variation) => {
                   const varCode = variation.code || '';
-                  const varPreviewHtml = varCode.includes('<html') ? varCode : 
+                  const varPreviewHtml = varCode.includes('<html') ? varCode :
                     `<html><head><style>body{margin:0;padding:16px;background:#0b0d12;color:#f5f5f7;font-family:Segoe UI,system-ui,sans-serif;} *{box-sizing:border-box;}</style></head><body>${varCode}</body></html>`;
-                  
+
                   // Generate React preview without useMemo (can't use hooks in loops)
                   let varPreviewReact = '';
                   if (varCode) {
