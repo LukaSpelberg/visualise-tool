@@ -8,6 +8,7 @@ import TopNav from './components/TopNav.jsx';
 import ComponentsPage from './components/ComponentsPage.jsx';
 import CreateComponentPage from './components/CreateComponentPage.jsx';
 import SettingsPage from './components/SettingsPage.jsx';
+import BuildPlanPreview from './components/BuildPlanPreview.jsx';
 // inline create handled inside ProjectTree
 
 const findFirstFile = nodes => {
@@ -45,6 +46,11 @@ const App = () => {
   const [viewMode, setViewMode] = useState('code'); // 'code' | 'visual'
   const [previewUrl, setPreviewUrl] = useState('');
   const [aiActiveTab, setAiActiveTab] = useState('build');
+  // Open tabs: array of { path, name, content, savedContent }
+  const [openTabs, setOpenTabs] = useState([]);
+  // Build plan preview state
+  const [activeBuildPlan, setActiveBuildPlan] = useState(null);
+  const [buildPlanOpen, setBuildPlanOpen] = useState(false);
   const [creatingComponent, setCreatingComponent] = useState(false);
   const [componentForm, setComponentForm] = useState({ name: '', useCase: '', language: 'React' });
   const [componentAnalysis, setComponentAnalysis] = useState('');
@@ -291,6 +297,10 @@ const App = () => {
       const res = await fileBridge.saveFile({ filePath: activeFilePath, content: code });
       if (res?.filePath) {
         setSavedContent(code);
+        // Update the tab's savedContent
+        setOpenTabs(prev => prev.map(tab => 
+          tab.path === activeFilePath ? { ...tab, savedContent: code, content: code } : tab
+        ));
         // eslint-disable-next-line no-console
         console.log('[save] saved', res.filePath);
       }
@@ -328,18 +338,39 @@ const App = () => {
         return;
       }
 
+      // Check if file is already open in a tab
+      const existingTab = openTabs.find(tab => tab.path === filePath);
+      if (existingTab) {
+        setActiveFilePath(filePath);
+        setCode(existingTab.content);
+        setSavedContent(existingTab.savedContent);
+        setFsError('');
+        return;
+      }
+
       const response = await fileBridge.readFile(filePath);
       if (response?.error) {
         setFsError(response.error);
         return;
       }
 
+      const content = response?.content ?? '';
+      const fileName = getNameFromPath(filePath);
+      
+      // Add new tab
+      setOpenTabs(prev => [...prev, {
+        path: filePath,
+        name: fileName,
+        content,
+        savedContent: content
+      }]);
+
       setFsError('');
       setActiveFilePath(filePath);
-      setCode(response?.content ?? '');
-      setSavedContent(response?.content ?? '');
+      setCode(content);
+      setSavedContent(content);
     },
-    [fileBridge]
+    [fileBridge, openTabs]
   );
 
   const handleChooseFolder = useCallback(async () => {
@@ -578,11 +609,61 @@ const App = () => {
 
   const clearCreateRequest = useCallback(() => setCreateRequest(null), []);
 
+  // Close a tab
+  const closeTab = useCallback((filePath) => {
+    setOpenTabs(prev => {
+      const filtered = prev.filter(tab => tab.path !== filePath);
+      // If closing the active tab, switch to another one
+      if (filePath === activeFilePath && filtered.length > 0) {
+        const lastTab = filtered[filtered.length - 1];
+        setActiveFilePath(lastTab.path);
+        setCode(lastTab.content);
+        setSavedContent(lastTab.savedContent);
+      } else if (filtered.length === 0) {
+        setActiveFilePath('');
+        setCode(null);
+        setSavedContent(null);
+      }
+      return filtered;
+    });
+  }, [activeFilePath]);
+
+  // Switch to a tab
+  const switchTab = useCallback((filePath) => {
+    // Save current tab's content first
+    if (activeFilePath) {
+      setOpenTabs(prev => prev.map(tab => 
+        tab.path === activeFilePath ? { ...tab, content: code } : tab
+      ));
+    }
+    
+    const tab = openTabs.find(t => t.path === filePath);
+    if (tab) {
+      setActiveFilePath(filePath);
+      setCode(tab.content);
+      setSavedContent(tab.savedContent);
+    }
+  }, [activeFilePath, code, openTabs]);
+
+  // Sync code changes to the current tab
+  const handleCodeChange = useCallback((newCode) => {
+    setCode(newCode);
+    setOpenTabs(prev => prev.map(tab => 
+      tab.path === activeFilePath ? { ...tab, content: newCode } : tab
+    ));
+  }, [activeFilePath]);
+
   const handleSelectFile = useCallback(
     filePath => {
+      // Save current tab's content before switching
+      if (activeFilePath) {
+        setOpenTabs(prev => prev.map(tab => 
+          tab.path === activeFilePath ? { ...tab, content: code } : tab
+        ));
+      }
       openFile(filePath);
     },
-    [openFile]
+    [openFile, activeFilePath, code]
   );
 
   const activeFileName = getNameFromPath(activeFilePath);
@@ -612,6 +693,10 @@ const App = () => {
           buildState={componentBuild}
           folderPath={folderPath}
           fileBridge={fileBridge}
+          onOpenBuildPlan={(plan) => {
+            setActiveBuildPlan(plan);
+            setBuildPlanOpen(true);
+          }}
         />
         {viewMode === 'code' ? (
           aiActiveTab === 'components' ? (
@@ -660,17 +745,47 @@ const App = () => {
             <>
               <div className={`editor-column ${terminalOpen ? 'has-terminal' : ''}`}>
                 <div className="editor-pane-wrapper">
-                  <EditorPane
-                    fileName={activeFileName}
-                    code={code}
-                    onChange={setCode}
-                    warnings={0}
-                    errors={0}
-                    dirty={dirty}
-                    onSave={saveFile}
-                    viewMode={viewMode}
-                    onToggleView={toggleViewMode}
-                  />
+                  {buildPlanOpen && activeBuildPlan ? (
+                    <BuildPlanPreview
+                      plan={activeBuildPlan}
+                      onSendFeedback={(feedback) => {
+                        // This will be handled by passing a callback from BuildChat
+                        if (window.__buildPlanFeedbackHandler) {
+                          window.__buildPlanFeedbackHandler(feedback);
+                        }
+                        setBuildPlanOpen(false);
+                        setActiveBuildPlan(null);
+                      }}
+                      onClose={() => {
+                        setBuildPlanOpen(false);
+                        setActiveBuildPlan(null);
+                      }}
+                      openTabs={openTabs}
+                      activeFilePath={activeFilePath}
+                      onTabClick={(path) => {
+                        setBuildPlanOpen(false);
+                        setActiveBuildPlan(null);
+                        switchTab(path);
+                      }}
+                      onTabClose={closeTab}
+                    />
+                  ) : (
+                    <EditorPane
+                      fileName={activeFileName}
+                      code={code}
+                      onChange={handleCodeChange}
+                      warnings={0}
+                      errors={0}
+                      dirty={dirty}
+                      onSave={saveFile}
+                      viewMode={viewMode}
+                      onToggleView={toggleViewMode}
+                      openTabs={openTabs}
+                      activeFilePath={activeFilePath}
+                      onTabClick={switchTab}
+                      onTabClose={closeTab}
+                    />
+                  )}
                 </div>
                 <TerminalPane
                   isOpen={terminalOpen}

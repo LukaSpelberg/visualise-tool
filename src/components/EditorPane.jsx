@@ -25,12 +25,59 @@ const guessLanguage = fileName => {
   }
 };
 
-const EditorPane = ({ fileName, warnings, errors, code, onChange, dirty, onSave, viewMode, onToggleView }) => {
+const EditorPane = ({ 
+  fileName, 
+  warnings, 
+  errors, 
+  code, 
+  onChange, 
+  dirty, 
+  onSave, 
+  viewMode, 
+  onToggleView,
+  openTabs = [],
+  activeFilePath,
+  onTabClick,
+  onTabClose
+}) => {
   const language = useMemo(() => guessLanguage(fileName), [fileName]);
   const isEmpty = code === null;
 
+  // Check if a specific tab is dirty
+  const isTabDirty = (tab) => tab.content !== tab.savedContent;
+
   return (
     <section className="panel panel-editor">
+      {/* Tabs bar */}
+      {openTabs.length > 0 && (
+        <div className="editor-tabs">
+          {openTabs.map(tab => (
+            <div 
+              key={tab.path}
+              className={`editor-tab ${tab.path === activeFilePath ? 'active' : ''}`}
+              onClick={() => onTabClick?.(tab.path)}
+            >
+              <span className="editor-tab-name">
+                {tab.name}
+                {isTabDirty(tab) && <span className="editor-tab-dirty">●</span>}
+              </span>
+              {tab.path === activeFilePath && (
+                <button 
+                  className="editor-tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTabClose?.(tab.path);
+                  }}
+                  title="Close"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      
       <div className="editor-bar">
         <div className="tab-info">
           <span className="file-name">{fileName}</span>

@@ -17,7 +17,8 @@ const AIChatPlaceholder = ({
   onBuild,
   buildState = {},
   folderPath,
-  fileBridge
+  fileBridge,
+  onOpenBuildPlan
 }) => {
   const textareaRef = useRef(null);
   const [value, setValue] = useState('');
@@ -121,7 +122,7 @@ const AIChatPlaceholder = ({
           </div>
         </div>
       ) : activeTab === 'build' ? (
-        <BuildChat folderPath={folderPath} fileBridge={fileBridge} />
+        <BuildChat folderPath={folderPath} fileBridge={fileBridge} onOpenBuildPlan={onOpenBuildPlan} />
       ) : activeTab === 'animate' ? (
         <>
           <div className="chat-body">
