@@ -26,15 +26,6 @@ const ComponentsPage = ({ onImport, onCreate, components = [], onOpenComponent, 
             <div className="create-label">Create new component</div>
           </button>
 
-          <button
-            type="button"
-            className="test-component-button"
-            onClick={onCreateTest}
-            aria-label="Test component builder"
-          >
-            <div className="create-plus">⚡</div>
-            <div className="create-label">Test Mode (Manual Input)</div>
-          </button>
 
           {components.map(item => (
             <button

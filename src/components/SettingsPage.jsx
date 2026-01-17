@@ -91,7 +91,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
       // Use proper path joining for Windows compatibility
       const settingsPath = folderPath.replace(/\\/g, '/') + '/' + SETTINGS_FILENAME;
       console.log('Loading settings from:', settingsPath);
-      
+
       try {
         const result = await fileBridge.readFile(settingsPath);
         console.log('Load result:', result);
@@ -149,7 +149,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
 
     // Use proper path joining for Windows compatibility
     const settingsPath = folderPath.replace(/\\/g, '/') + '/' + SETTINGS_FILENAME;
-    
+
     try {
       setSaveStatus('saving');
       console.log('Saving settings to:', settingsPath);
@@ -158,14 +158,14 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
         content: JSON.stringify(newSettings, null, 2)
       });
       console.log('Save result:', result);
-      
+
       if (!result?.success) {
         console.error('Failed to save project settings:', result?.error);
         setSaveStatus('error');
         setTimeout(() => setSaveStatus(''), 3000);
         return;
       }
-      
+
       console.log('Settings saved successfully to:', settingsPath);
       setSaveStatus('saved');
       // Clear the "saved" status after 2 seconds
@@ -180,23 +180,23 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
   // Enable project settings - creates the settings file
   const handleEnableSettings = useCallback(async () => {
     if (!folderPath || !fileBridge?.saveFile) return;
-    
+
     const settingsPath = folderPath.replace(/\\/g, '/') + '/' + SETTINGS_FILENAME;
-    
+
     try {
       setSaveStatus('saving');
       const result = await fileBridge.saveFile({
         filePath: settingsPath,
         content: JSON.stringify(DEFAULT_SETTINGS, null, 2)
       });
-      
+
       if (!result?.success) {
         console.error('Failed to create settings file:', result?.error);
         setSaveStatus('error');
         setTimeout(() => setSaveStatus(''), 3000);
         return;
       }
-      
+
       console.log('Settings file created:', settingsPath);
       setSettings(DEFAULT_SETTINGS);
       setSettingsFileExists(true);
@@ -213,9 +213,9 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
   // Disconnect - delete the settings file
   const handleDisconnect = useCallback(async () => {
     if (!folderPath || !fileBridge?.deleteEntry) return;
-    
+
     const settingsPath = folderPath.replace(/\\/g, '/') + '/' + SETTINGS_FILENAME;
-    
+
     try {
       await fileBridge.deleteEntry({ path: settingsPath });
       console.log('Settings file deleted:', settingsPath);
@@ -238,12 +238,12 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
   useEffect(() => {
     // Don't save while loading or before initial load completes or if file doesn't exist
     if (isLoading || !hasLoadedRef.current || !settingsFileExists) return;
-    
+
     // Clear any pending save
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
+
     // Schedule a new save after 500ms of no changes
     saveTimeoutRef.current = setTimeout(() => {
       saveProjectSettings(settings);
@@ -260,7 +260,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
   useEffect(() => {
     const loadImages = async () => {
       if (!folderPath || !fileBridge?.readTree) return;
-      
+
       try {
         const res = await fileBridge.readTree(folderPath);
         if (res?.success) {
@@ -271,14 +271,14 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
         console.error('Failed to load images:', err);
       }
     };
-    
+
     loadImages();
   }, [folderPath, fileBridge]);
 
   const findImageFiles = (nodes, basePath) => {
     const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico'];
     const results = [];
-    
+
     const walk = (list) => {
       list.forEach(item => {
         if (item.type === 'file') {
@@ -295,7 +295,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
         }
       });
     };
-    
+
     walk(nodes);
     return results;
   };
@@ -313,11 +313,11 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
     // First check Google Fonts
     const googleFont = getFontByName(fontName);
     if (googleFont) return googleFont.weights;
-    
+
     // Then check custom fonts
     const customFont = (settings.customFonts || []).find(f => f.name === fontName);
     if (customFont) return customFont.weights || ['400'];
-    
+
     return ['400'];
   }, [settings.customFonts]);
 
@@ -372,18 +372,18 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
       if (weightsMatch) {
         weights = weightsMatch[1].split(';').filter(w => /^\d+$/.test(w));
       }
-      
+
       setSettings(prev => ({
         ...prev,
         customFonts: [...(prev.customFonts || []), { name: fontName, weights, url: googleFontUrl }]
       }));
-      
+
       // Add the font to the document
       const link = document.createElement('link');
       link.href = googleFontUrl;
       link.rel = 'stylesheet';
       document.head.appendChild(link);
-      
+
       setGoogleFontUrl('');
       setShowFontImport(false);
     }
@@ -392,9 +392,9 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
   const handleFontFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     const fontName = file.name.replace(/\.(ttf|otf|woff|woff2)$/i, '');
-    
+
     // Create a font face from the file
     const reader = new FileReader();
     reader.onload = async () => {
@@ -402,12 +402,12 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
       try {
         await fontFace.load();
         document.fonts.add(fontFace);
-        
+
         setSettings(prev => ({
           ...prev,
           customFonts: [...(prev.customFonts || []), { name: fontName, weights: ['400'], isLocal: true }]
         }));
-        
+
         setShowFontImport(false);
       } catch (err) {
         console.error('Failed to load font:', err);
@@ -435,7 +435,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    
+
     const files = Array.from(e.dataTransfer.files);
     await uploadImages(files);
   }, [folderPath, fileBridge]);
@@ -453,8 +453,8 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
       return;
     }
 
-    const imageFiles = files.filter(file => 
-      file.type.startsWith('image/') || 
+    const imageFiles = files.filter(file =>
+      file.type.startsWith('image/') ||
       /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(file.name)
     );
 
@@ -468,14 +468,14 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
 
     try {
       const imagesFolder = `${folderPath}/src/assets/images`;
-      
+
       if (fileBridge.ensureDir) {
         await fileBridge.ensureDir(imagesFolder);
       }
 
       for (const file of imageFiles) {
         const reader = new FileReader();
-        
+
         await new Promise((resolve, reject) => {
           reader.onload = async () => {
             try {
@@ -499,7 +499,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
       }
 
       setUploadStatus(`Successfully uploaded ${imageFiles.length} image(s)!`);
-      
+
       if (fileBridge.readTree) {
         const res = await fileBridge.readTree(folderPath);
         if (res?.success) {
@@ -572,7 +572,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
             <p className="settings-onboarding-note">
               This will create a <code>.visualise-settings.json</code> file in your project folder.
             </p>
-            <button 
+            <button
               className="settings-onboarding-btn"
               onClick={handleEnableSettings}
               disabled={saveStatus === 'saving'}
@@ -626,7 +626,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
                 Disconnect
               </button>
             </div>
-            
+
             {showDisconnectConfirm && (
               <div className="settings-disconnect-confirm">
                 <p>Delete <code>.visualise-settings.json</code> from this project?</p>
@@ -677,7 +677,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
                   </button>
                 </div>
               ))}
-              
+
               {showAddColor ? (
                 <div className="settings-color-add-form">
                   <div className="settings-color-input-wrapper">
@@ -742,7 +742,9 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
               className="settings-select"
             >
               {LANGUAGE_OPTIONS.map(lang => (
-                <option key={lang} value={lang}>{lang}</option>
+                <option key={lang} value={lang} disabled={lang !== 'Plain HTML/CSS'}>
+                  {lang} {lang !== 'Plain HTML/CSS' ? '(Coming Soon)' : ''}
+                </option>
               ))}
             </select>
           </div>
@@ -753,7 +755,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
             <p className="settings-section-description">
               Define fonts for different text elements. Click an element to configure its typography.
             </p>
-            
+
             <div className="settings-typography-container">
               <div className="settings-font-list">
                 {Object.entries(settings.fonts).map(([element, config]) => (
@@ -898,7 +900,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
                     {/* Preview */}
                     <div className="settings-panel-field">
                       <label>Preview</label>
-                      <div 
+                      <div
                         className="settings-font-preview-box"
                         style={{
                           fontFamily: selectedFontConfig.family,
@@ -923,7 +925,7 @@ const SettingsPage = ({ folderPath, fileBridge }) => {
               Upload images to your project. The AI can reference these when building components.
               Images are saved to <code>src/assets/images/</code>
             </p>
-            
+
             <div
               className={`settings-image-dropzone ${isDragging ? 'dragging' : ''}`}
               onDragOver={handleDragOver}

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
-const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
+const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan, onRefreshTree }) => {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [uploadedImage, setUploadedImage] = useState(null); // { base64, preview, mimeType }
@@ -10,7 +10,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
   const [awaitingApproval, setAwaitingApproval] = useState(false);
   const [buildMode, setBuildMode] = useState('builder'); // 'builder' | 'tweaker'
   const [replyingTo, setReplyingTo] = useState(null); // For showing reply context
-  
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -67,7 +67,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
       });
     };
     reader.readAsDataURL(file);
-    
+
     // Clear the input so the same file can be selected again
     e.target.value = '';
   };
@@ -118,7 +118,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
 
       // Add a message indicating the plan is ready for review
       addMessage('assistant', '📋 Build plan created! Review it in the editor and add your feedback.');
-      
+
       // Open the build plan preview in the editor
       onOpenBuildPlan?.(plan);
 
@@ -181,7 +181,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
     // If we're awaiting approval and user wants to refine
     if (awaitingApproval && buildPlan) {
       setIsAnalyzing(true);
-      
+
       try {
         // Refine the plan based on user feedback
         const result = await window.editorAPI?.refineBuildPlan({
@@ -236,6 +236,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
         const fileList = result.files?.map(f => `  • ${f.path}`).join('\n') || 'No files created';
         addMessage('assistant', `✅ Build complete!\n\n**Created files:**\n${fileList}\n\nYou can now view and edit these files in the project tree.`);
         setBuildPlan(null);
+        onRefreshTree?.();
       }
     } catch (err) {
       addMessage('assistant', `❌ Build error: ${err.message}`);
@@ -275,6 +276,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
           const fileList = result.files?.map(f => `  • ${f.path}`).join('\n') || 'No files created';
           addMessage('assistant', `✅ Build complete!\n\n**Created files:**\n${fileList}\n\nYou can now view and edit these files in the project tree.`);
           setBuildPlan(null);
+          onRefreshTree?.();
         }
       } catch (err) {
         addMessage('assistant', `❌ Build error: ${err.message}`);
@@ -284,14 +286,14 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
       }
     } else if (feedback.type === 'feedback' && feedback.comments?.length > 0) {
       // User has comments - show them and build with feedback incorporated
-      const feedbackText = feedback.comments.map(c => 
+      const feedbackText = feedback.comments.map(c =>
         `**On:** "${c.lineContent.slice(0, 50)}${c.lineContent.length > 50 ? '...' : ''}"\n→ ${c.comment}`
       ).join('\n\n');
-      
+
       setReplyingTo('Build Plan');
       addMessage('user', feedbackText);
       setReplyingTo(null);
-      
+
       // Build with feedback incorporated (not refining - directly building)
       setIsBuilding(true);
       setAwaitingApproval(false);
@@ -313,6 +315,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
           const fileList = result.files?.map(f => `  • ${f.path}`).join('\n') || 'No files created';
           addMessage('assistant', `✅ Build complete!\n\n**Created files:**\n${fileList}\n\nYou can now view and edit these files in the project tree.`);
           setBuildPlan(null);
+          onRefreshTree?.();
         }
       } catch (err) {
         addMessage('assistant', `❌ Build error: ${err.message}`);
@@ -343,7 +346,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
   const renderMessage = (msg) => {
     const isUser = msg.role === 'user';
     const hasReplyContext = msg.content.includes('**On:**');
-    
+
     return (
       <div key={msg.id} className={`build-chat-message ${isUser ? 'user' : 'assistant'} ${hasReplyContext ? 'has-reply' : ''}`}>
         {hasReplyContext && isUser && (
@@ -455,7 +458,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
       {/* Approval button */}
       {awaitingApproval && !isBuilding && (
         <div className="build-chat-approval">
-          <button 
+          <button
             className="build-chat-approve-btn"
             onClick={handleStartBuild}
           >
@@ -473,7 +476,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
           onChange={handleImageSelect}
           style={{ display: 'none' }}
         />
-        
+
         {/* Image preview inside command box */}
         {uploadedImage && (
           <div className="command-box-image-preview">
@@ -482,7 +485,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
             <span className="command-box-image-name">{uploadedImage.name}</span>
           </div>
         )}
-        
+
         <textarea
           ref={textareaRef}
           className="command-box-textarea"
@@ -493,7 +496,7 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
           disabled={isAnalyzing || isBuilding}
           rows={1}
         />
-        
+
         <div className="command-box-footer">
           <div className="command-box-left">
             <select
@@ -505,9 +508,9 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
               <option value="builder">Builder</option>
               <option value="tweaker">Tweaker</option>
             </select>
-            
+
             {buildMode === 'builder' && (
-              <button 
+              <button
                 className="command-box-icon-btn"
                 onClick={() => fileInputRef.current?.click()}
                 title="Attach design image"
@@ -519,16 +522,16 @@ const BuildChat = ({ folderPath, fileBridge, onOpenBuildPlan }) => {
               </button>
             )}
           </div>
-          
-          <button 
+
+          <button
             className="command-box-icon-btn send"
             onClick={handleSend}
             disabled={(!inputValue.trim() && !uploadedImage) || isAnalyzing || isBuilding}
             title="Send"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M22 2L11 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M22 2L11 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         </div>

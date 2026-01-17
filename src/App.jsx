@@ -699,6 +699,7 @@ const App = () => {
             setActiveBuildPlan(plan);
             setBuildPlanOpen(true);
           }}
+          onRefreshTree={refreshTree}
         />
         {viewMode === 'code' ? (
           aiActiveTab === 'components' ? (
@@ -752,6 +753,16 @@ const App = () => {
               folderPath={folderPath}
               fileBridge={fileBridge}
             />
+          ) : aiActiveTab === 'animate' ? (
+            <div className="panel-animate-placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#666', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ fontSize: '48px' }}>✨</div>
+              <h3 style={{ margin: 0, color: '#f5f5f7' }}>Animation Studio</h3>
+              <p style={{ margin: 0, maxWidth: '300px', textAlign: 'center', lineHeight: '1.5' }}>
+                Make your design come alive. Turn storyboards into actual CSS animations.
+                <br /><br />
+                <span style={{ fontWeight: 600, color: '#4f8ef7' }}>Coming Soon</span>
+              </p>
+            </div>
           ) : (
             <>
               <div className={`editor-column ${terminalOpen ? 'has-terminal' : ''}`}>

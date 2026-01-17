@@ -1272,6 +1272,11 @@ ${styleGuideText || 'No style guide configured.'}`;
         ? `\n\n**Existing Components (import and reuse these):**\n${components.map(c => `${c.fileName}:\n\`\`\`\n${c.code}\n\`\`\``).join('\n\n')}`
         : '';
 
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return { success: false, error: 'Missing GEMINI_API_KEY in environment.' };
+      }
+
       const buildPrompt = `You are an expert front-end developer. Build the following based on the detailed specifications.
 
 **Project Info:**
@@ -1299,36 +1304,41 @@ ${buildPlan.detailedPrompt}
    - Write the FULL file content.
    - Include ALL imports.
 4. Follow the framework conventions (${projectStructure.framework || 'plain HTML'})
+5. **Make it Interactive:**
+   - Detect implied interactivity (mobile menus, sliders, modals, tabs).
+   - You MUST implement the JavaScript to make these work.
+   - If Vanilla JS: create a scripts/main.js or similar and link it, or use inline scripts if appropriate.
+        - If React / Vue: use state to handle the interactions.
 
-**OUTPUT FORMAT:**
-For each file, output in this exact format:
-===FILE: path/to/file.ext===
-[complete file content]
-===END FILE===
+** OUTPUT FORMAT:**
+        For each file, output in this exact format:
+=== FILE: path / to / file.ext ===
+        [complete file content]
+        === END FILE ===
 
-Generate all files now:`;
+          Generate all files now: `;
 
-      const res = await fetch('http://localhost:11434/api/generate', {
+      const urlToCall = `${GEMINI_API_BASE}/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+      const res = await fetchWithRetry(urlToCall, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: OLLAMA_BUILD_MODEL,
-          prompt: buildPrompt,
-          stream: false,
-          options: {
-            temperature: 0.3,
-            num_predict: 8000
-          }
+          contents: [{ parts: [{ text: buildPrompt }] }]
         })
       });
 
       if (!res.ok) {
         const text = await res.text();
-        return { success: false, error: `Ollama error ${res.status}: ${text}` };
+        return { success: false, error: `Gemini error ${res.status}: ${text}` };
       }
 
       const data = await res.json();
-      const response = data?.response || '';
+      const response = (data?.candidates || [])
+        .flatMap(c => c?.content?.parts || [])
+        .map(p => p.text || '')
+        .join('\n')
+        .trim();
 
       // Parse the response to extract files
       // We support multiple formats because LLMs are unpredictable
@@ -1346,7 +1356,7 @@ Generate all files now:`;
       // Regex patterns for file headers
       // We accept various formats to be robust against model variations
       const headerPatterns = [
-        /^===FILE:\s*(.+?)===/,
+        /^===\s*FILE:\s*(.+?)===/i,       // Matches "===FILE:...", "=== FILE: ... ==="
         /^###\s*FILE.*:\s*(.+)/i,  // Relaxed: matches "### File 1:", "### FILE:", etc.
         /^\*\*\s*File.*:\s*\*\*\s*(.+)/i,
         /^File.*:\s*(.+)/i
@@ -1358,7 +1368,8 @@ Generate all files now:`;
           const match = line.match(pattern);
           if (match && match[1]) {
             // Strip backticks, whitespace, and any trailing non-path chars
-            return match[1].trim().replace(/^`+|`+$/g, '');
+            // also strip trailing === if the regex was loose
+            return match[1].replace(/===$/, '').trim().replace(/^`+|`+$/g, '');
           }
         }
         return null;
@@ -1366,7 +1377,8 @@ Generate all files now:`;
 
       // Helper to check if a line is a file footer
       const matchFooter = (line) => {
-        return line.trim() === '===END FILE===' || line.trim() === '```';
+        const t = line.trim();
+        return t === '===END FILE===' || t === '=== END FILE ===' || t === '```';
       };
 
       for (let i = 0; i < lines.length; i++) {
